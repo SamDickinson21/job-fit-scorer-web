@@ -1,0 +1,53 @@
+:root {
+  --bg: #101114;
+  --surface: #17181b;
+  --surface-2: #1d1f23;
+  --border: #2a2c30;
+  --text: #eef1f4;
+  --text-muted: #b7bdc6;
+  --text-dim: #7d838c;
+  --blue: #1a5f9e;
+  --blue-light: #5aaee0;
+  --blue-dim: rgba(26, 95, 158, 0.12);
+  --green: #3fae6a;
+  --amber: #d9a13a;
+  --red: #d9534f;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --serif: Georgia, "Times New Roman", serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--serif);
+}
+
+textarea,
+input,
+button {
+  font-family: inherit;
+}
+
+::selection {
+  background: var(--blue-dim);
+}
+
+/* Visible keyboard focus, not removed */
+:focus-visible {
+  outline: 2px solid var(--blue-light);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
