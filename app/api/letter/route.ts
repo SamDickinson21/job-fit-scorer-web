@@ -5,10 +5,13 @@ import { LETTER_SYSTEM_PROMPT, buildLetterPrompt } from "@/lib/prompts";
 export const runtime = "nodejs";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+
+// Cover letters need a writing model, not the cheapest structured-output model.
+// Override in Vercel with OPENROUTER_LETTER_MODEL if you prefer another slug.
 const MODEL =
   process.env.OPENROUTER_LETTER_MODEL ||
   process.env.OPENROUTER_MODEL ||
-  "openrouter/free";
+  "openai/gpt-4o-mini";
 
 const BANNED_LETTER_PHRASES = [
   "trusted proxy",
@@ -23,12 +26,29 @@ const BANNED_LETTER_PHRASES = [
   "directly matches",
   "that's exactly what i did",
   "i am writing to express my interest",
+  "i am excited to apply",
   "dear hiring manager",
-  "[position]",
-  "[company name]",
-  "[relevant field]",
-  "[previous company]",
-  "[specific achievement",
+  "proven track record",
+  "fast-paced environment",
+  "dynamic team",
+  "measurable impact",
+  "data-driven decisions",
+  "strategic outcomes",
+  "create structure from chaos",
+  "turn ambiguity into execution",
+  "operational leverage",
+  "operational lever",
+  "builder-operator mindset",
+  "domain credibility",
+];
+
+const PLACEHOLDER_PATTERNS = [
+  /\[[^\]]+\]/i,
+  /\bposition\s*\]/i,
+  /\bcompany name\b/i,
+  /\brelevant field\b/i,
+  /\bprevious company\b/i,
+  /\bspecific achievement\b/i,
 ];
 
 type LetterRequestBody = {
@@ -58,6 +78,10 @@ function normalizePlainText(text: string): string {
     .trim();
 }
 
+function wordCount(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
 function finalizeLetter(text: string): string {
   let cleaned = normalizePlainText(text);
 
@@ -78,10 +102,33 @@ function findBannedPhrase(text: string): string | null {
   return BANNED_LETTER_PHRASES.find((phrase) => lower.includes(phrase)) || null;
 }
 
+function findPlaceholder(text: string): string | null {
+  const match = PLACEHOLDER_PATTERNS.find((pattern) => pattern.test(text));
+  return match ? match.toString() : null;
+}
+
+function assessLetter(text: string): { ok: boolean; reason?: string } {
+  const placeholder = findPlaceholder(text);
+  if (placeholder) return { ok: false, reason: `placeholder pattern ${placeholder}` };
+
+  const banned = findBannedPhrase(text);
+  if (banned) return { ok: false, reason: `banned phrase "${banned}"` };
+
+  const wc = wordCount(text.replace(/\n\s*Sam\s*$/i, ""));
+  if (wc < 300) return { ok: false, reason: `too short (${wc} words)` };
+  if (wc > 700) return { ok: false, reason: `too long (${wc} words)` };
+
+  if (/^\s*Dear\b/i.test(text)) return { ok: false, reason: "uses salutation" };
+  if (!/\n\s*Sam\s*$/i.test(text)) return { ok: false, reason: "missing Sam signature" };
+
+  return { ok: true };
+}
+
 async function callOpenRouter(
   apiKey: string,
   messages: ChatMessage[],
   maxTokens: number,
+  temperature = 0.45,
 ) {
   const upstream = await fetch(OPENROUTER_URL, {
     method: "POST",
@@ -92,7 +139,7 @@ async function callOpenRouter(
     body: JSON.stringify({
       model: MODEL,
       messages,
-      temperature: 0.25,
+      temperature,
       max_tokens: maxTokens,
     }),
   });
@@ -113,6 +160,46 @@ async function callOpenRouter(
   };
 }
 
+function makeGenerationPrompt(basePrompt: string, retryReason?: string): string {
+  if (!retryReason) return basePrompt;
+
+  return `${basePrompt}
+
+The prior cover letter attempt failed this quality check: ${retryReason}.
+
+Write a new version from scratch. Do not repair the prior draft. Do not use placeholders, generic cover-letter framing, salutation, or banned phrases. Make it specific, substantial, and usable.`;
+}
+
+async function generateCompleteLetter(
+  apiKey: string,
+  baseMessages: ChatMessage[],
+): Promise<string> {
+  let first = await callOpenRouter(apiKey, baseMessages, 6000, 0.45);
+  let combined = first.content;
+  let finishReason = first.finishReason;
+
+  // Continue automatically if the model stops because of token length.
+  for (let attempt = 0; finishReason === "length" && attempt < 2; attempt += 1) {
+    const continuationMessages: ChatMessage[] = [
+      {
+        role: "system",
+        content:
+          "Continue the unfinished cover letter. Do not restart. Do not repeat earlier sentences. Keep the same voice. Finish naturally and end with Sam on its own line. Use plain ASCII text only. Do not use placeholders, salutation, or proxy language.",
+      },
+      {
+        role: "user",
+        content: `Continue exactly from this unfinished letter and finish it.\n\n${combined}`,
+      },
+    ];
+
+    const next = await callOpenRouter(apiKey, continuationMessages, 2500, 0.35);
+    combined = `${combined}${combined.endsWith(" ") || next.content.startsWith(" ") ? "" : " "}${next.content}`;
+    finishReason = next.finishReason;
+  }
+
+  return finalizeLetter(combined);
+}
+
 export async function POST(req: NextRequest) {
   const apiKey = process.env.OPENROUTER_API_KEY;
 
@@ -131,10 +218,7 @@ export async function POST(req: NextRequest) {
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json(
-      { error: "Invalid request body" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
   const jdText = (body.jdText || "").trim();
@@ -154,92 +238,33 @@ export async function POST(req: NextRequest) {
 
   const userPrompt = buildLetterPrompt(PROFILE, jdText, body.result, metadata);
 
-  const initialMessages: ChatMessage[] = [
-    { role: "system", content: LETTER_SYSTEM_PROMPT },
-    { role: "user", content: userPrompt },
-  ];
-
   try {
-    let first = await callOpenRouter(apiKey, initialMessages, 4000);
-    let combined = first.content;
-    let finishReason = first.finishReason;
+    let lastReason = "";
+    let letter = "";
 
-    // Some OpenRouter models cut off. Continue automatically instead of returning a broken draft.
-    for (
-      let attempt = 0;
-      finishReason === "length" && attempt < 2;
-      attempt += 1
-    ) {
-      const continuationMessages: ChatMessage[] = [
-        {
-          role: "system",
-          content:
-            "Continue an unfinished cover letter in Sam Dickinson's voice. Do not restart. Do not repeat earlier sentences. Use plain ASCII text only. Finish naturally and completely and end with Sam on its own line. Do not use placeholders or salutation. Do not use the phrases trusted proxy, strategic proxy, CEO proxy, density of scope, or matches exactly.",
-        },
-        {
-          role: "user",
-          content: `The cover letter below was cut off. Continue exactly from where it stopped, finish naturally, and do not repeat anything.\n\nPARTIAL COVER LETTER:\n${combined}`,
-        },
+    // Try up to three full generations. Failed drafts are not used as rewrite input,
+    // because that produced generic template letters before.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const messages: ChatMessage[] = [
+        { role: "system", content: LETTER_SYSTEM_PROMPT },
+        { role: "user", content: makeGenerationPrompt(userPrompt, lastReason || undefined) },
       ];
 
-      const next = await callOpenRouter(apiKey, continuationMessages, 2000);
-      combined = `${combined}${combined.endsWith(" ") || next.content.startsWith(" ") ? "" : " "}${next.content}`;
-      finishReason = next.finishReason;
+      letter = await generateCompleteLetter(apiKey, messages);
+      const assessment = assessLetter(letter);
+      if (assessment.ok) return NextResponse.json({ letter });
+      lastReason = assessment.reason || "unknown quality failure";
     }
 
-    let letter = finalizeLetter(combined);
-
-    // Rewrite up to two times if the model uses unsafe proxy language or generic placeholders.
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const banned = findBannedPhrase(letter);
-      if (!banned) break;
-
-      const rewritePrompt = `${userPrompt}
-
-The draft below is unusable because it contains the banned phrase or placeholder: "${banned}".
-
-Rewrite it from scratch using the actual job description, candidate profile, and fit evaluation above.
-
-Rules for this rewrite:
-- Do not use any placeholders.
-- Do not use a salutation.
-- Do not say Sam was a CEO proxy, trusted proxy, or strategic proxy.
-- Do not copy the job description's proxy language into Sam's experience.
-- Keep it substantial enough to use, about 350 to 500 words.
-- Sign as Sam.
-
-BAD DRAFT TO REWRITE:
-${letter}`;
-
-      const rewritten = await callOpenRouter(
-        apiKey,
-        [
-          { role: "system", content: LETTER_SYSTEM_PROMPT },
-          { role: "user", content: rewritePrompt },
-        ],
-        4000,
-      );
-
-      letter = finalizeLetter(rewritten.content);
-    }
-
-    const remainingProblem = findBannedPhrase(letter);
-    if (remainingProblem) {
-      return NextResponse.json(
-        {
-          error: `The model returned an unusable cover letter containing "${remainingProblem}". Use a stronger OPENROUTER_LETTER_MODEL or try again.`,
-          letter,
-        },
-        { status: 502 },
-      );
-    }
-
-    return NextResponse.json({ letter });
+    return NextResponse.json(
+      {
+        error: `The model could not produce a usable cover letter after 3 attempts. Last issue: ${lastReason}. Set OPENROUTER_LETTER_MODEL to a stronger writing model, such as openai/gpt-4o-mini or openai/gpt-4.1-mini.`,
+        letter,
+      },
+      { status: 502 },
+    );
   } catch (err) {
-    const message =
-      err instanceof Error
-        ? err.message
-        : "Something went wrong drafting the letter.";
+    const message = err instanceof Error ? err.message : "Something went wrong drafting the letter.";
     return NextResponse.json({ error: message }, { status: 502 });
   }
 }
