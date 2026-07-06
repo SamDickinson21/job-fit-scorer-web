@@ -201,6 +201,14 @@ Do not use any of these:
 - that is exactly what I did
 - these are not just metrics
 - proof that I can
+- presents a unique challenge
+- driving cross-functional execution
+- high-impact results
+- enhance operational efficiency
+- contribute effectively
+- tangible outcomes
+- I have successfully led
+- across clinical, operations, finance, and growth
 
 ACCURACY RULES:
 - Never say Sam was, acted as, or operated as a CEO proxy, trusted proxy, or strategic proxy.
@@ -216,6 +224,14 @@ ACCURACY RULES:
 - Never claim AWS expertise.
 - Do not over-position Sam as an AI specialist. AI is a tool he uses to improve operations, not his identity.
 - Do not overstate Medicare Advantage, payer, insurance, or regulated healthcare experience. Bridge honestly.
+
+EVIDENCE LOCK:
+- Do not convert job-description responsibilities into claims about Sam's past experience.
+- Every first-person claim must be directly supported by Sam's profile or the fit evaluation.
+- If the JD says the role works across clinical, operations, finance, and growth, do not say Sam has led across those exact functions unless the profile explicitly supports it. Bridge from Sam's actual experience instead: executive partnership, commercial operations, finance-facing forecasting/reporting, GTM execution, systems, and leadership decision support.
+- Do not say Sam has owned CEO-level decision rights, represented the CEO, led payer/Medicare Advantage operations, or led clinical operations.
+- Do not write sentences beginning with "I have successfully led". They tend to create generic overclaims.
+- Do not mirror the JD's responsibility list back as Sam's history. Use the JD to choose proof, not to invent proof.
 
 CONTENT RULES:
 - Use one main Akadeum story as the spine of the letter.
@@ -236,7 +252,7 @@ Paragraph 2:
 Use Sam's main proof story. Usually Akadeum's commercial operating system: forecasting, pipeline management, executive reporting, board preparation, go-to-market execution, and a source of truth leadership could rely on.
 
 Paragraph 3:
-Explain why the proof matters. Connect it to the role's need for operating rhythm, prioritization, decision flow, cross-functional execution, or leadership clarity.
+Explain why the proof matters. Connect it to the role's need for operating rhythm, prioritization, decision flow, cross-functional execution, or leadership clarity. Do this by bridging from Sam's real operating work, not by claiming he has already led the exact functions in the JD.
 
 Paragraph 4:
 Use one supporting proof point. Usually AI-assisted lead routing/sales dossier workflows or ICP redesign. Pick the one that best matches the JD.
@@ -317,6 +333,10 @@ Select only the strongest relevant proof points. Do not stack every possible acc
 If there is a gap, address it briefly and honestly without sounding defensive.
 
 Do not use the phrases "trusted proxy," "strategic proxy," or "CEO proxy" in the letter.
+
+Do not convert the JD's responsibilities into Sam's past experience. If the JD mentions clinical, operations, finance, and growth, do not claim Sam led across those exact functions. Bridge from his real commercial, finance-facing, executive reporting, GTM, and systems work.
+
+Avoid generic cover-letter language. The final letter should sound like a thoughtful operator wrote it, not a consultant or template.
 
 Do not put Sam's name at the top. Sign with Sam at the bottom.
 

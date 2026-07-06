@@ -34,6 +34,15 @@ const BANNED_LETTER_PHRASES = [
   "measurable impact",
   "data-driven decisions",
   "strategic outcomes",
+  "presents a unique challenge",
+  "driving cross-functional execution",
+  "high-impact results",
+  "enhance operational efficiency",
+  "contribute effectively",
+  "tangible outcomes",
+  "i have successfully led",
+  "across clinical, operations, finance, and growth",
+  "clinical, operations, finance, and growth",
   "create structure from chaos",
   "turn ambiguity into execution",
   "operational leverage",
@@ -107,12 +116,31 @@ function findPlaceholder(text: string): string | null {
   return match ? match.toString() : null;
 }
 
+function findUnsupportedClaim(text: string): string | null {
+  const lower = text.toLowerCase();
+
+  const unsupportedPatterns: Array<[RegExp, string]> = [
+    [/\bi have successfully led\b/i, 'generic unsupported claim: "I have successfully led"'],
+    [/\bled cross-functional initiatives across clinical/i, 'unsupported clinical cross-functional claim'],
+    [/clinical, operations, finance, and growth/i, 'parrots Clover function list as experience'],
+    [/\bled .*clinical.*operations.*finance.*growth/i, 'claims leadership across Clover-specific functions'],
+    [/\bowned .*medicare advantage/i, 'claims direct Medicare Advantage ownership'],
+    [/\bled .*medicare advantage/i, 'claims direct Medicare Advantage leadership'],
+  ];
+
+  const match = unsupportedPatterns.find(([pattern]) => pattern.test(lower));
+  return match ? match[1] : null;
+}
+
 function assessLetter(text: string): { ok: boolean; reason?: string } {
   const placeholder = findPlaceholder(text);
   if (placeholder) return { ok: false, reason: `placeholder pattern ${placeholder}` };
 
   const banned = findBannedPhrase(text);
   if (banned) return { ok: false, reason: `banned phrase "${banned}"` };
+
+  const unsupported = findUnsupportedClaim(text);
+  if (unsupported) return { ok: false, reason: unsupported };
 
   const wc = wordCount(text.replace(/\n\s*Sam\s*$/i, ""));
   if (wc < 300) return { ok: false, reason: `too short (${wc} words)` };
@@ -167,7 +195,7 @@ function makeGenerationPrompt(basePrompt: string, retryReason?: string): string 
 
 The prior cover letter attempt failed this quality check: ${retryReason}.
 
-Write a new version from scratch. Do not repair the prior draft. Do not use placeholders, generic cover-letter framing, salutation, or banned phrases. Make it specific, substantial, and usable.`;
+Write a new version from scratch. Do not repair the prior draft. Do not use placeholders, generic cover-letter framing, salutation, banned phrases, or unsupported claims. Make it specific, substantial, and usable. Only make first-person claims that are directly supported by Sam's profile or fit evaluation.`;
 }
 
 async function generateCompleteLetter(
