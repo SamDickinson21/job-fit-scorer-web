@@ -7,6 +7,14 @@ export const runtime = "nodejs"
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 const MODEL = "openrouter/free"
 
+type LetterRequestBody = {
+  title?: string
+  company?: string
+  role?: string
+  jdText?: string
+  result?: object
+}
+
 export async function POST(req: NextRequest) {
   const apiKey = process.env.OPENROUTER_API_KEY
   if (!apiKey) {
@@ -16,7 +24,7 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  let body: { jdText?: string; result?: object }
+  let body: LetterRequestBody
   try {
     body = await req.json()
   } catch {
@@ -26,6 +34,12 @@ export async function POST(req: NextRequest) {
   const jdText = (body.jdText || "").trim()
   if (!jdText || !body.result) {
     return NextResponse.json({ error: "Missing job description or score result" }, { status: 400 })
+  }
+
+  const metadata = {
+    title: body.title || "",
+    company: body.company || "",
+    role: body.role || "",
   }
 
   const userPrompt = buildLetterPrompt(PROFILE, jdText, body.result, metadata)
@@ -44,7 +58,7 @@ export async function POST(req: NextRequest) {
           { role: "system", content: LETTER_SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.4,
+        temperature: 0.35,
       }),
     })
   } catch {
