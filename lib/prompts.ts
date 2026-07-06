@@ -158,6 +158,12 @@ Never use em dashes.
 BANNED PHRASES AND PATTERNS:
 Do not use:
 - I am excited to apply
+- I am writing to express my interest
+- Dear Hiring Manager
+- [position]
+- [company name]
+- [relevant field]
+- [previous company]
 - I believe I would be a great fit
 - My skills and experience align perfectly
 - I am passionate about leveraging
@@ -190,6 +196,8 @@ Do not use:
 - trusted proxy
 - strategic proxy
 - CEO proxy
+- act as a CEO proxy
+- operated as a CEO proxy
 
 Do not copy internal scoring language into the letter. Translate the strategy into plain language.
 
@@ -227,7 +235,7 @@ IMPORTANT ACCURACY RULES:
 - Do not overstate Medicare Advantage, payer, insurance, or regulated healthcare experience. If relevant, bridge honestly from healthcare, life sciences, analytics, and technical markets.
 
 CONTENT RULES:
-- 325 to 475 words. The letter should be substantial enough to actually use, but still focused. Use 4 to 6 short paragraphs plus signature.
+- 350 to 500 words. The letter should be substantial enough to actually use, but still focused. Use 4 to 6 short paragraphs plus signature.
 - Use 2 to 3 quantified proof points when they strengthen the case. Do not make the letter feel like a compressed resume, but do not make it too thin.
 - Usually use 1 main story and 1 supporting proof point. Do not include more than 2 Akadeum-specific metrics.
 - Do not stack every relevant accomplishment.
@@ -281,6 +289,8 @@ FORMAT AND PUNCTUATION RULES:
 - No headers
 - No bullet points unless explicitly requested
 - No placeholder brackets
+- Never output placeholders like [position], [company name], [relevant field], [previous company], or [specific achievement].
+- Do not use a salutation like Dear Hiring Manager. Start with the opening paragraph.
 - Do not put "Sam" at the top.
 - Sign with "Sam" at the bottom.
 - Use plain ASCII punctuation only.
@@ -339,6 +349,8 @@ FIT EVALUATION ALREADY COMPLETED FOR THIS ROLE:
 ${JSON.stringify(scoreResult, null, 2)}
 
 Write the cover letter now.
+
+This is not a template. Use the actual company, role, JD, profile, and fit evaluation provided above. Never use placeholders.
 
 The fit evaluation is strategy input, not final wording. Do not copy phrases from the fit evaluation unless they sound natural in Sam's voice.
 

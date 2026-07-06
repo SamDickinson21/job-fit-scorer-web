@@ -114,6 +114,22 @@ function pushUnique(items: string[], item: string): string[] {
   return exists ? items : [...items, item]
 }
 
+function sanitizeProxyClaims(text: unknown): string {
+  return toText(text)
+    .replace(/act as a CEO proxy/gi, "support CEO-level decision-making")
+    .replace(/acted as a CEO proxy/gi, "supported CEO-level decision-making")
+    .replace(/operated as a CEO proxy/gi, "operated as an executive partner")
+    .replace(/serve as a CEO proxy/gi, "support CEO-level decision-making")
+    .replace(/served as a CEO proxy/gi, "supported CEO-level decision-making")
+    .replace(/CEO proxy/gi, "executive partner")
+    .replace(/trusted proxy/gi, "trusted operating partner")
+    .replace(/strategic proxy/gi, "strategic operating partner")
+}
+
+function sanitizeArray(items: string[]): string[] {
+  return items.map(item => sanitizeProxyClaims(item))
+}
+
 function normalizeScoreResult(
   input: Record<string, unknown>,
   jdText: string,
@@ -213,12 +229,22 @@ function normalizeScoreResult(
   result.gaps_to_address = gaps
   result.compounding_gaps = compounding
 
-  result.best_positioning_angle = toText(result.best_positioning_angle) ||
-    "Strategic operator who builds operating systems, decision infrastructure, and executive clarity for leadership teams."
+  if ((ceoProxySignal || chiefOfStaffSignal) && tenPlusSignal && medicareSignal) {
+    result.best_positioning_angle =
+      "Position Sam as a strategic operator who builds operating systems, decision infrastructure, and executive clarity for leadership teams in complex healthcare-adjacent environments, while being honest that the CEO-proxy mandate is a stretch."
+  } else {
+    result.best_positioning_angle = sanitizeProxyClaims(result.best_positioning_angle) ||
+      "Strategic operator who builds operating systems, decision infrastructure, and executive clarity for leadership teams."
+  }
 
-  result.reasoning = toText(result.reasoning) || toText(result.pursuit_summary)
-  result.application_strategy = toText(result.application_strategy) ||
+  result.reasoning = sanitizeProxyClaims(result.reasoning) || toText(result.pursuit_summary)
+  result.application_strategy = sanitizeProxyClaims(result.application_strategy) ||
     "Lead with operating systems, executive decision support, and measurable cross-functional execution. Be direct about any seniority or domain stretch."
+  result.cover_letter_angle = sanitizeProxyClaims(result.cover_letter_angle)
+  result.interview_proof_points = sanitizeArray(toArray(result.interview_proof_points))
+  result.green_flags = sanitizeArray(toArray(result.green_flags))
+  result.bright_spots = sanitizeArray(toArray(result.bright_spots))
+  result.recommended_resume_bullets = sanitizeArray(toArray(result.recommended_resume_bullets))
 
   return result
 }
