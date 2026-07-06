@@ -7,6 +7,18 @@ export const runtime = "nodejs"
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 const MODEL = "openrouter/free"
 
+function cleanLetter(text: string): string {
+  return text
+    .replace(/\u2014/g, "-")
+    .replace(/\u2013/g, "-")
+    .replace(/\u2011/g, "-")
+    .replace(/\u202F/g, " ")
+    .replace(/\u00A0/g, " ")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .trim()
+}
+
 type LetterRequestBody = {
   title?: string
   company?: string
@@ -58,7 +70,8 @@ export async function POST(req: NextRequest) {
           { role: "system", content: LETTER_SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.3,
+        temperature: 0.25,
+        max_tokens: 900
       }),
     })
   } catch {
@@ -74,7 +87,9 @@ export async function POST(req: NextRequest) {
   }
 
   const data = await upstream.json()
-  const letter: string = data?.choices?.[0]?.message?.content?.trim() ?? ""
+  const letter: string = cleanLetter(
+    data?.choices?.[0]?.message?.content ?? ""
+  )
 
   return NextResponse.json({ letter })
 }

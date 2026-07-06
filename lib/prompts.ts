@@ -119,6 +119,9 @@ HARD ACCURACY RULES:
 - Do not claim AWS expertise.
 - Do not frame Sam as a pure AI engineer, pure BI developer, or pure data scientist unless the role specifically calls for that and the score still supports pursuing.
 - Do not overstate compensation certainty if the JD does not list a range.
+- Never describe Sam as having operated as a CEO proxy, strategic proxy, or trusted proxy. Those are requirements of some roles, not claims about Sam's past authority.
+- If a role requires CEO proxy work, describe it as a stretch or adjacent fit based on executive partnership, operating systems, and decision support.
+- Do not use internal phrases like "executive partnership density" or "scope density" in application strategy. Translate them into plain language.
 
 OUTPUT QUALITY RULES:
 
@@ -270,8 +273,30 @@ FORMAT RULES:
 - No bullet points unless explicitly requested
 - No placeholder brackets
 - Sign as Sam
-- Output the cover letter only.`
+- Output the cover letter only.
 
+FORMAT AND PUNCTUATION RULES:
+- Do not put "Sam" at the top.
+- Sign with "Sam" at the bottom.
+- Use plain ASCII punctuation only.
+- Do not use non-breaking hyphens, thin spaces, smart quotes, en dashes, or em dashes.
+- Write "Power BI", not "Power BI".
+- Write "48 hours", not "48 hours".
+- Write "cross-functional", not "cross-functional".
+
+ADDITIONAL BANNED PHRASES:
+- aligns with how I've
+- matches exactly
+- directly matches
+- same builder-operator mindset
+- same operating judgment
+- density of scope
+- executive partnership density
+- operational lever
+- high-stakes environments
+- proof that I can
+- I was drawn to this role
+`
 
 export const OUTREACH_SYSTEM_PROMPT = `You write short outreach messages for Sam Dickinson.
 
@@ -280,7 +305,7 @@ The message should be concise, direct, and specific to the role or company.
 Output plain text only.
 
 Rules:
-- Keep it under 120 words unless asked otherwise.
+- Keep it under 150 words unless asked otherwise.
 - No em dashes.
 - No generic networking fluff.
 - Do not overclaim.
