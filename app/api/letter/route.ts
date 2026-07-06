@@ -7,6 +7,18 @@ export const runtime = "nodejs"
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 const MODEL = process.env.OPENROUTER_LETTER_MODEL || process.env.OPENROUTER_MODEL || "openrouter/free"
 
+const BANNED_LETTER_PHRASES = [
+  "trusted proxy",
+  "strategic proxy",
+  "ceo proxy",
+  "density of scope",
+  "scope density",
+  "executive partnership density",
+  "matches exactly",
+  "directly matches",
+  "that's exactly what i did",
+]
+
 type LetterRequestBody = {
   title?: string
   company?: string
@@ -15,8 +27,13 @@ type LetterRequestBody = {
   result?: object
 }
 
-function cleanLetter(text: string): string {
-  let cleaned = text
+type ChatMessage = {
+  role: "system" | "user" | "assistant"
+  content: string
+}
+
+function normalizePlainText(text: string): string {
+  return text
     .replace(/\u2014/g, "-")
     .replace(/\u2013/g, "-")
     .replace(/\u2011/g, "-")
@@ -24,23 +41,57 @@ function cleanLetter(text: string): string {
     .replace(/\u00A0/g, " ")
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")
+    .replace(/^```(?:text)?/i, "")
+    .replace(/```$/i, "")
     .trim()
+}
+
+function finalizeLetter(text: string): string {
+  let cleaned = normalizePlainText(text)
 
   // Remove accidental signature/header at the top.
   cleaned = cleaned.replace(/^Sam\s*\n+/i, "")
 
-  // If the model accidentally included a markdown/code fence, remove it.
-  cleaned = cleaned
-    .replace(/^```(?:text)?/i, "")
-    .replace(/```$/i, "")
-    .trim()
+  // Collapse excessive blank lines.
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim()
 
-  // Make sure the letter ends with Sam, but do not duplicate it.
-  if (!/\nSam\s*$/i.test(cleaned) && !/^Sam\s*$/i.test(cleaned)) {
-    cleaned = `${cleaned}\n\nSam`
+  // Remove duplicate trailing signatures, then add one clean signature.
+  cleaned = cleaned.replace(/(\n\s*Sam\s*)+$/i, "").trim()
+  return `${cleaned}\n\nSam`
+}
+
+function hasBannedPhrase(text: string): string | null {
+  const lower = text.toLowerCase()
+  return BANNED_LETTER_PHRASES.find(phrase => lower.includes(phrase)) || null
+}
+
+async function callOpenRouter(apiKey: string, messages: ChatMessage[], maxTokens: number) {
+  const upstream = await fetch(OPENROUTER_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      messages,
+      temperature: 0.25,
+      max_tokens: maxTokens,
+    }),
+  })
+
+  if (!upstream.ok) {
+    const text = await upstream.text().catch(() => "")
+    throw new Error(`OpenRouter returned ${upstream.status}. ${text.slice(0, 300)}`)
   }
 
-  return cleaned
+  const data = await upstream.json()
+  const choice = data?.choices?.[0]
+
+  return {
+    content: normalizePlainText(choice?.message?.content ?? ""),
+    finishReason: choice?.finish_reason as string | undefined,
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -75,55 +126,56 @@ export async function POST(req: NextRequest) {
 
   const userPrompt = buildLetterPrompt(PROFILE, jdText, body.result, metadata)
 
-  let upstream: Response
+  const initialMessages: ChatMessage[] = [
+    { role: "system", content: LETTER_SYSTEM_PROMPT },
+    { role: "user", content: userPrompt },
+  ]
 
   try {
-    upstream = await fetch(OPENROUTER_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: "system", content: LETTER_SYSTEM_PROMPT },
-          { role: "user", content: userPrompt },
-        ],
-        temperature: 0.3,
-        max_tokens: 1200,
-      }),
-    })
-  } catch {
-    return NextResponse.json(
-      { error: "Could not reach OpenRouter. Check your connection and try again." },
-      { status: 502 }
-    )
+    let first = await callOpenRouter(apiKey, initialMessages, 3200)
+    let combined = first.content
+    let finishReason = first.finishReason
+
+    // Some OpenRouter models cut off even with a reasonable token budget.
+    // If that happens, continue automatically instead of returning a broken draft.
+    for (let attempt = 0; finishReason === "length" && attempt < 2; attempt += 1) {
+      const continuationMessages: ChatMessage[] = [
+        {
+          role: "system",
+          content:
+            "Continue an unfinished cover letter in Sam Dickinson's voice. Do not restart. Do not repeat earlier sentences. Use plain ASCII text only. Finish naturally and completely and end with Sam on its own line. Do not use the phrases trusted proxy, strategic proxy, CEO proxy, density of scope, or matches exactly.",
+        },
+        {
+          role: "user",
+          content: `The cover letter below was cut off. Continue exactly from where it stopped, finish naturally, and do not repeat anything.\n\nPARTIAL COVER LETTER:\n${combined}`,
+        },
+      ]
+
+      const next = await callOpenRouter(apiKey, continuationMessages, 1600)
+      combined = `${combined}${combined.endsWith(" ") || next.content.startsWith(" ") ? "" : " "}${next.content}`
+      finishReason = next.finishReason
+    }
+
+    let letter = finalizeLetter(combined)
+    const banned = hasBannedPhrase(letter)
+
+    if (banned) {
+      // One automatic rewrite pass if the model used unsafe JD/proxy language.
+      const rewriteMessages: ChatMessage[] = [
+        { role: "system", content: LETTER_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: `Rewrite this cover letter so it is complete, polished, substantial enough to actually use, and does not use the banned phrase "${banned}". Do not claim Sam was a CEO proxy, trusted proxy, or strategic proxy. Keep the same core argument and sign as Sam.\n\nDRAFT TO FIX:\n${letter}`,
+        },
+      ]
+
+      const rewritten = await callOpenRouter(apiKey, rewriteMessages, 2600)
+      letter = finalizeLetter(rewritten.content)
+    }
+
+    return NextResponse.json({ letter })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Something went wrong drafting the letter."
+    return NextResponse.json({ error: message }, { status: 502 })
   }
-
-  if (!upstream.ok) {
-    const text = await upstream.text().catch(() => "")
-
-    return NextResponse.json(
-      { error: `OpenRouter returned ${upstream.status}. ${text.slice(0, 300)}` },
-      { status: 502 }
-    )
-  }
-
-  const data = await upstream.json()
-  const choice = data?.choices?.[0]
-  const finishReason = choice?.finish_reason
-  const letter = cleanLetter(choice?.message?.content ?? "")
-
-  if (finishReason === "length") {
-    return NextResponse.json(
-      {
-        error: "The cover letter was cut off by the model token limit. Increase max_tokens or use a stronger model.",
-        letter,
-      },
-      { status: 502 }
-    )
-  }
-
-  return NextResponse.json({ letter })
 }

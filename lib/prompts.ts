@@ -227,9 +227,9 @@ IMPORTANT ACCURACY RULES:
 - Do not overstate Medicare Advantage, payer, insurance, or regulated healthcare experience. If relevant, bridge honestly from healthcare, life sciences, analytics, and technical markets.
 
 CONTENT RULES:
-- 225 to 325 words.
-- Use no more than 2 quantified proof points per letter unless the JD explicitly calls for metrics-heavy evidence.
-- Usually use 1 main story and 1 supporting proof point.
+- 325 to 475 words. The letter should be substantial enough to actually use, but still focused. Use 4 to 6 short paragraphs plus signature.
+- Use 2 to 3 quantified proof points when they strengthen the case. Do not make the letter feel like a compressed resume, but do not make it too thin.
+- Usually use 1 main story and 1 supporting proof point. Do not include more than 2 Akadeum-specific metrics.
 - Do not stack every relevant accomplishment.
 - Do not summarize the resume.
 - Do not turn the letter into a list of achievements.
@@ -285,6 +285,7 @@ FORMAT AND PUNCTUATION RULES:
 - Sign with "Sam" at the bottom.
 - Use plain ASCII punctuation only.
 - Do not use non-breaking hyphens, thin spaces, smart quotes, en dashes, or em dashes.
+- End naturally with a short closing sentence and then Sam on its own line.
 - Output the cover letter only.`
 
 export const OUTREACH_SYSTEM_PROMPT = `You write concise networking outreach for Sam Dickinson.
@@ -343,7 +344,7 @@ The fit evaluation is strategy input, not final wording. Do not copy phrases fro
 
 Use the job description to understand the company's actual operating problem.
 
-Select only the strongest relevant proof points. Do not stack every possible accomplishment.
+Select only the strongest relevant proof points. Do not stack every possible accomplishment, but include enough proof to make the letter usable without heavy rewriting.
 
 If there is a gap, address it briefly and honestly without sounding defensive.
 
