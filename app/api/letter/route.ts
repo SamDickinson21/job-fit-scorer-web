@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
           { role: "system", content: LETTER_SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.35,
+        temperature: 0.3,
       }),
     })
   } catch {
