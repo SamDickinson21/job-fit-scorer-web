@@ -5,7 +5,7 @@ import { LETTER_SYSTEM_PROMPT, buildLetterPrompt } from "@/lib/prompts"
 export const runtime = "nodejs"
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-const MODEL = "openrouter/free"
+const MODEL = process.env.OPENROUTER_LETTER_MODEL || process.env.OPENROUTER_MODEL || "openrouter/free"
 
 type LetterRequestBody = {
   title?: string
@@ -16,7 +16,7 @@ type LetterRequestBody = {
 }
 
 function cleanLetter(text: string): string {
-  return text
+  let cleaned = text
     .replace(/\u2014/g, "-")
     .replace(/\u2013/g, "-")
     .replace(/\u2011/g, "-")
@@ -25,6 +25,22 @@ function cleanLetter(text: string): string {
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")
     .trim()
+
+  // Remove accidental signature/header at the top.
+  cleaned = cleaned.replace(/^Sam\s*\n+/i, "")
+
+  // If the model accidentally included a markdown/code fence, remove it.
+  cleaned = cleaned
+    .replace(/^```(?:text)?/i, "")
+    .replace(/```$/i, "")
+    .trim()
+
+  // Make sure the letter ends with Sam, but do not duplicate it.
+  if (!/\nSam\s*$/i.test(cleaned) && !/^Sam\s*$/i.test(cleaned)) {
+    cleaned = `${cleaned}\n\nSam`
+  }
+
+  return cleaned
 }
 
 export async function POST(req: NextRequest) {
@@ -74,8 +90,8 @@ export async function POST(req: NextRequest) {
           { role: "system", content: LETTER_SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.25,
-        max_tokens: 700,
+        temperature: 0.3,
+        max_tokens: 1200,
       }),
     })
   } catch {
@@ -95,7 +111,19 @@ export async function POST(req: NextRequest) {
   }
 
   const data = await upstream.json()
-  const letter = cleanLetter(data?.choices?.[0]?.message?.content ?? "")
+  const choice = data?.choices?.[0]
+  const finishReason = choice?.finish_reason
+  const letter = cleanLetter(choice?.message?.content ?? "")
+
+  if (finishReason === "length") {
+    return NextResponse.json(
+      {
+        error: "The cover letter was cut off by the model token limit. Increase max_tokens or use a stronger model.",
+        letter,
+      },
+      { status: 502 }
+    )
+  }
 
   return NextResponse.json({ letter })
 }
