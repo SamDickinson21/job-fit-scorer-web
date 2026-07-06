@@ -1,18 +1,31 @@
 import { NextRequest, NextResponse } from "next/server"
 import { PROFILE } from "@/lib/profile"
-import { LETTER_SYSTEM_PROMPT, buildLetterPrompt } from "@/lib/prompts"
+import { SCORE_SYSTEM_PROMPT, buildScorePrompt } from "@/lib/prompts"
 
 export const runtime = "nodejs"
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 const MODEL = "openrouter/free"
 
-type LetterRequestBody = {
+type ScoreRequestBody = {
   title?: string
   company?: string
   role?: string
   jdText?: string
-  result?: object
+}
+
+function stripJsonFence(content: string): string {
+  let cleaned = content.trim()
+
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned
+      .replace(/^```json/i, "")
+      .replace(/^```/, "")
+      .replace(/```$/, "")
+      .trim()
+  }
+
+  return cleaned
 }
 
 export async function POST(req: NextRequest) {
@@ -28,7 +41,7 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  let body: LetterRequestBody
+  let body: ScoreRequestBody
 
   try {
     body = await req.json()
@@ -38,9 +51,9 @@ export async function POST(req: NextRequest) {
 
   const jdText = (body.jdText || "").trim()
 
-  if (!jdText || !body.result) {
+  if (!jdText) {
     return NextResponse.json(
-      { error: "Missing job description or score result" },
+      { error: "Job description is empty" },
       { status: 400 }
     )
   }
@@ -51,7 +64,7 @@ export async function POST(req: NextRequest) {
     role: body.role || "",
   }
 
-  const userPrompt = buildLetterPrompt(PROFILE, jdText, body.result, metadata)
+  const userPrompt = buildScorePrompt(PROFILE, jdText, metadata)
 
   let upstream: Response
 
@@ -65,10 +78,10 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model: MODEL,
         messages: [
-          { role: "system", content: LETTER_SYSTEM_PROMPT },
+          { role: "system", content: SCORE_SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.4,
+        temperature: 0.2,
       }),
     })
   } catch {
@@ -90,7 +103,20 @@ export async function POST(req: NextRequest) {
   }
 
   const data = await upstream.json()
-  const letter: string = data?.choices?.[0]?.message?.content?.trim() ?? ""
+  const content: string = stripJsonFence(
+    data?.choices?.[0]?.message?.content ?? ""
+  )
 
-  return NextResponse.json({ letter })
+  try {
+    const result = JSON.parse(content)
+    return NextResponse.json({ result })
+  } catch {
+    return NextResponse.json(
+      {
+        error: "The model's response wasn't valid JSON. Try again.",
+        raw: content,
+      },
+      { status: 502 }
+    )
+  }
 }
