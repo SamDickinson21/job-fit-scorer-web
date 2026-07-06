@@ -82,6 +82,7 @@ export async function POST(req: NextRequest) {
           { role: "user", content: userPrompt },
         ],
         temperature: 0.2,
+        response_format: { type: "json_object" },
       }),
     })
   } catch {

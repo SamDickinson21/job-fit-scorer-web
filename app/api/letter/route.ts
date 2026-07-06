@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing job description or score result" }, { status: 400 })
   }
 
-  const userPrompt = buildLetterPrompt(PROFILE, jdText, body.result)
+  const userPrompt = buildLetterPrompt(PROFILE, jdText, body.result, metadata)
 
   let upstream: Response
   try {
