@@ -6,6 +6,7 @@ export const runtime = "nodejs"
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 const MODEL = process.env.OPENROUTER_SCORE_MODEL || process.env.OPENROUTER_MODEL || "openrouter/free"
+const SCORE_MAX_TOKENS = 2200
 
 type ScoreRequestBody = {
   title?: string
@@ -109,8 +110,24 @@ function removeBadRedFlags(flags: string[]): string[] {
   })
 }
 
+function normalizeForDedupe(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[.,;:!?]/g, "")
+    .replace(/ceo[- ]?proxy/g, "ceo proxy")
+    .replace(/10\+? years?/g, "10 years")
+    .replace(/approximately 8 years/g, "8 years")
+    .replace(/medicare advantage|payer domain|health insurance/g, "medicare")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
 function pushUnique(items: string[], item: string): string[] {
-  const exists = items.some(existing => existing.toLowerCase() === item.toLowerCase())
+  const incoming = normalizeForDedupe(item)
+  const exists = items.some(existing => {
+    const normalized = normalizeForDedupe(existing)
+    return normalized === incoming || normalized.includes(incoming) || incoming.includes(normalized)
+  })
   return exists ? items : [...items, item]
 }
 
@@ -205,22 +222,44 @@ function normalizeScoreResult(
     gaps = pushUnique(gaps, "Bridge honestly from healthcare, life sciences, analytics, and complex technical markets into Medicare Advantage.")
   }
 
-  if ((ceoProxySignal || chiefOfStaffSignal) && tenPlusSignal && medicareSignal) {
-    compounding = pushUnique(
-      compounding,
-      "CEO-proxy expectations, 10+ year screening, and Medicare Advantage domain depth create a real but potentially worthwhile stretch."
-    )
+  const isCloverStyleStretch = (ceoProxySignal || chiefOfStaffSignal) && tenPlusSignal && medicareSignal
 
-    result.role_fit_score = clampScore(result.role_fit_score, 78, 84, 82)
-    result.opportunity_quality_score = clampScore(result.opportunity_quality_score, 84, 92, 88)
+  if (isCloverStyleStretch) {
+    // For CEO-facing Medicare Advantage Chief of Staff roles, overwrite noisy model fields.
+    // This keeps the triage fast while preventing score/reasoning contradictions.
+    redFlags = [
+      "The role includes CEO-proxy language and may require decision authority Sam has not formally held.",
+      "The role asks for 10+ years of experience, while Sam has approximately 8 years.",
+      "Medicare Advantage is a specific payer domain Sam has not worked in directly.",
+    ]
 
-    if (result.verdict === "strong_pursue") {
-      result.verdict = "pursue"
-    }
+    gaps = [
+      "Frame CEO-proxy requirements as an adjacent stretch supported by executive partnership, decision systems, and operating cadence work.",
+      "Bridge the years-of-experience gap by leading with scope, ownership, and measurable operating impact.",
+      "Bridge honestly from healthcare, life sciences, analytics, and complex technical markets into Medicare Advantage.",
+    ]
 
+    compounding = [
+      "CEO-proxy expectations, 10+ year screening, and Medicare Advantage domain depth create a real but potentially worthwhile stretch.",
+    ]
+
+    result.role_fit_score = clampScore(result.role_fit_score, 78, 82, 82)
+    result.opportunity_quality_score = clampScore(result.opportunity_quality_score, 86, 90, 88)
+
+    result.verdict = "pursue"
     result.application_roi_tier = "high_touch"
+    result.underleveling_risk = "low"
+    result.stretch_risk = "high"
+    result.credential_risk = "medium"
+    result.domain_risk = "medium"
     result.pursuit_summary =
       "High-touch pursue. This is a credible stretch: the role is strongly aligned with Sam's operating style, but the CEO-proxy mandate, 10+ year preference, and Medicare Advantage domain create real screening and ramp risk."
+    result.reasoning =
+      "The role aligns strongly with Sam's operating systems, executive decision support, and AI-enabled workflow experience, but it is not a clean match. The CEO-proxy mandate, 10+ year preference, and Medicare Advantage domain make it a credible stretch rather than a slam dunk."
+    result.application_strategy =
+      "Lead with the Akadeum commercial operating system story, executive decision support, and AI-assisted workflow proof. Bridge the stretch honestly without claiming CEO-proxy authority or direct Medicare Advantage experience."
+    result.cover_letter_angle =
+      "Write a grounded letter around operating systems, executive clarity, AI-assisted execution, and an honest bridge from healthcare/life sciences into Medicare Advantage. Do not mention the 8 vs 10 year gap directly."
   } else if (!toText(result.pursuit_summary)) {
     result.pursuit_summary = "Review carefully. The role may be worth pursuing, but the fit depends on level, mandate, leadership access, and whether Sam's operating systems story is central to the role."
   }
@@ -262,7 +301,8 @@ async function callOpenRouter(apiKey: string, userPrompt: string, useJsonMode: b
         { role: "system", content: SCORE_SYSTEM_PROMPT },
         { role: "user", content: userPrompt },
       ],
-      temperature: 0.15,
+      temperature: 0.1,
+      max_tokens: SCORE_MAX_TOKENS,
       ...(useJsonMode ? { response_format: { type: "json_object" } } : {}),
     }),
   })

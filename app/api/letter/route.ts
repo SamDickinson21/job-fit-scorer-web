@@ -45,6 +45,21 @@ const BANNED_LETTER_PHRASES = [
   "clinical, operations, finance, and growth",
   "create structure from chaos",
   "turn ambiguity into execution",
+  "presents a unique opportunity",
+  "rapid scaling in the medicare advantage space",
+  "navigating ambiguity while",
+  "actionable insights",
+  "informed decisions",
+  "streamline operations",
+  "improve the flow of information",
+  "strategic direction",
+  "strategic mindset",
+  "drive results",
+  "i am confident",
+  "i look forward to",
+  "i thrive in environments",
+  "resonates with my experience",
+  "critical for improving decision quality",
   "operational leverage",
   "operational lever",
   "builder-operator mindset",
@@ -123,6 +138,8 @@ function findUnsupportedClaim(text: string): string | null {
     [/\bi have successfully led\b/i, 'generic unsupported claim: "I have successfully led"'],
     [/\bled cross-functional initiatives across clinical/i, 'unsupported clinical cross-functional claim'],
     [/clinical, operations, finance, and growth/i, 'parrots Clover function list as experience'],
+    [/I understand the importance of establishing/i, 'generic JD-parroting operating rhythm claim'],
+    [/I have consistently/i, 'generic overclaim beginning with I have consistently'],
     [/\bled .*clinical.*operations.*finance.*growth/i, 'claims leadership across Clover-specific functions'],
     [/\bowned .*medicare advantage/i, 'claims direct Medicare Advantage ownership'],
     [/\bled .*medicare advantage/i, 'claims direct Medicare Advantage leadership'],
@@ -228,6 +245,46 @@ async function generateCompleteLetter(
   return finalizeLetter(combined);
 }
 
+
+function hasMedicareCosSignal(jdText: string, metadata: { title: string; company: string; role: string }): boolean {
+  const haystack = `${metadata.title} ${metadata.company} ${metadata.role}
+${jdText}`.toLowerCase();
+  return haystack.includes("chief of staff") && haystack.includes("medicare advantage");
+}
+
+function safeCompanyName(metadata: { company: string; role: string; title: string }): string {
+  return metadata.company.trim() || "the company";
+}
+
+function buildFallbackLetter(
+  jdText: string,
+  metadata: { title: string; company: string; role: string },
+): string {
+  const company = safeCompanyName(metadata);
+
+  if (hasMedicareCosSignal(jdText, metadata)) {
+    return finalizeLetter(`What stands out to me about this role is that ${company} is not looking for a traditional advisory Chief of Staff. The Medicare Advantage business is scaling quickly, and the CEO needs someone who can create operating rhythm, clarify priorities, and help the organization focus on the work that matters.
+
+That is the kind of work I did at Akadeum Life Sciences. I built and owned the commercial operating system behind forecasting, pipeline management, executive reporting, board preparation, and go-to-market execution, connecting NetSuite, HubSpot, Power BI, R, and automation workflows into a source of truth leadership could rely on. The work was not just technical. I partnered closely with the CEO, COO, CFO, and commercial leadership to turn fragmented data and ambiguous market signals into clearer operating decisions.
+
+${company}'s emphasis on using AI to improve execution also stood out to me. At Akadeum, I built AI-assisted workflows for lead routing and sales dossier generation that reduced average speed-to-first-touch from nearly 48 hours to under 20 hours. I see AI as a practical way to help teams move faster, reduce manual drag, and keep attention on the work that matters.
+
+I have not worked directly in Medicare Advantage, but I have spent much of my career in healthcare, life sciences, and complex technical markets, including Akadeum, DePuy Synthes, Stryker, and Spectrum Health. I am comfortable learning high-context environments quickly, especially when the work depends on systems thinking, clear communication, and disciplined execution.
+
+What I would bring to ${company} is a practical operating style: build the system, clarify the tradeoffs, surface what matters, and help leadership act.`);
+  }
+
+  return finalizeLetter(`What stands out to me about this role is its emphasis on turning ambiguity into clearer operating decisions. That is the work I am looking for next: building the systems, rhythms, and visibility leadership needs to focus on the right priorities and move with more confidence.
+
+At Akadeum Life Sciences, I built and owned the commercial operating system behind forecasting, pipeline management, executive reporting, board preparation, and go-to-market execution. I connected NetSuite, HubSpot, Power BI, R, and automation workflows into a source of truth leadership could rely on. The work was not just technical. I partnered closely with the CEO, COO, CFO, and commercial leadership to turn fragmented data and ambiguous market signals into clearer operating decisions.
+
+I also built AI-assisted workflows for lead routing and sales dossier generation that reduced average speed-to-first-touch from nearly 48 hours to under 20 hours. I see AI as a practical way to reduce manual drag, improve focus, and help teams spend more time on the work that matters.
+
+My path has been less traditional than some operations or Chief of Staff candidates, but it has been deeply operating-focused. I have worked across healthcare, life sciences, commercial strategy, analytics, and technical markets, and I am comfortable learning high-context environments quickly when the work depends on systems thinking, clear communication, and disciplined execution.
+
+What I would bring to ${company} is a practical operating style: build the system, clarify the tradeoffs, surface what matters, and help leadership act.`);
+}
+
 export async function POST(req: NextRequest) {
   const apiKey = process.env.OPENROUTER_API_KEY;
 
@@ -282,6 +339,13 @@ export async function POST(req: NextRequest) {
       const assessment = assessLetter(letter);
       if (assessment.ok) return NextResponse.json({ letter });
       lastReason = assessment.reason || "unknown quality failure";
+    }
+
+    const fallback = buildFallbackLetter(jdText, metadata);
+    const fallbackAssessment = assessLetter(fallback);
+
+    if (fallbackAssessment.ok) {
+      return NextResponse.json({ letter: fallback, fallback_used: true, fallback_reason: lastReason });
     }
 
     return NextResponse.json(
