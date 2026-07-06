@@ -1,22 +1,35 @@
 import { NextRequest, NextResponse } from "next/server"
 import { PROFILE } from "@/lib/profile"
-import { SCORE_SYSTEM_PROMPT, buildScorePrompt } from "@/lib/prompts"
+import { LETTER_SYSTEM_PROMPT, buildLetterPrompt } from "@/lib/prompts"
 
 export const runtime = "nodejs"
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 const MODEL = "openrouter/free"
 
+type LetterRequestBody = {
+  title?: string
+  company?: string
+  role?: string
+  jdText?: string
+  result?: object
+}
+
 export async function POST(req: NextRequest) {
   const apiKey = process.env.OPENROUTER_API_KEY
+
   if (!apiKey) {
     return NextResponse.json(
-      { error: "Server is missing OPENROUTER_API_KEY. Set it in your Vercel project settings." },
+      {
+        error:
+          "Server is missing OPENROUTER_API_KEY. Set it in your Vercel project settings.",
+      },
       { status: 500 }
     )
   }
 
-  let body: { title?: string; jdText?: string }
+  let body: LetterRequestBody
+
   try {
     body = await req.json()
   } catch {
@@ -24,13 +37,24 @@ export async function POST(req: NextRequest) {
   }
 
   const jdText = (body.jdText || "").trim()
-  if (!jdText) {
-    return NextResponse.json({ error: "Job description is empty" }, { status: 400 })
+
+  if (!jdText || !body.result) {
+    return NextResponse.json(
+      { error: "Missing job description or score result" },
+      { status: 400 }
+    )
   }
 
-  const userPrompt = buildScorePrompt(PROFILE, jdText)
+  const metadata = {
+    title: body.title || "",
+    company: body.company || "",
+    role: body.role || "",
+  }
+
+  const userPrompt = buildLetterPrompt(PROFILE, jdText, body.result, metadata)
 
   let upstream: Response
+
   try {
     upstream = await fetch(OPENROUTER_URL, {
       method: "POST",
@@ -41,14 +65,20 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model: MODEL,
         messages: [
-          { role: "system", content: SCORE_SYSTEM_PROMPT },
+          { role: "system", content: LETTER_SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.2,
+        temperature: 0.4,
       }),
     })
-  } catch (e) {
-    return NextResponse.json({ error: "Could not reach OpenRouter. Check your connection and try again." }, { status: 502 })
+  } catch {
+    return NextResponse.json(
+      {
+        error:
+          "Could not reach OpenRouter. Check your connection and try again.",
+      },
+      { status: 502 }
+    )
   }
 
   if (!upstream.ok) {
@@ -60,19 +90,7 @@ export async function POST(req: NextRequest) {
   }
 
   const data = await upstream.json()
-  let content: string = data?.choices?.[0]?.message?.content?.trim() ?? ""
+  const letter: string = data?.choices?.[0]?.message?.content?.trim() ?? ""
 
-  if (content.startsWith("```")) {
-    content = content.replace(/^```json/i, "").replace(/^```/, "").replace(/```$/, "").trim()
-  }
-
-  try {
-    const result = JSON.parse(content)
-    return NextResponse.json({ result })
-  } catch {
-    return NextResponse.json(
-      { error: "The model's response wasn't valid JSON. Try again.", raw: content },
-      { status: 502 }
-    )
-  }
+  return NextResponse.json({ letter })
 }
