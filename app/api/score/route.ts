@@ -5,7 +5,7 @@ import { SCORE_SYSTEM_PROMPT, buildScorePrompt } from "@/lib/prompts"
 export const runtime = "nodejs"
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-const MODEL = "openrouter/free"
+const MODEL = "qwen/qwen3.7-plus"
 
 type ScoreRequestBody = {
   title?: string
