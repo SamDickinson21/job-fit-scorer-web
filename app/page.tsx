@@ -24,7 +24,13 @@ interface ScoreResult {
 
   role_fit_score?: number
   opportunity_quality_score?: number
+
   underleveling_risk?: "low" | "medium" | "high" | string
+  stretch_risk?: "low" | "medium" | "high" | string
+  credential_risk?: "low" | "medium" | "high" | string
+  domain_risk?: "low" | "medium" | "high" | string
+
+  pursuit_summary?: string
   best_positioning_angle?: string
 
   green_flags?: string[]
@@ -494,8 +500,8 @@ export default function Home() {
             maxWidth: "720px",
           }}
         >
-          Scores role fit, opportunity quality, underleveling risk, and the best
-          angle to use if the role is worth pursuing.
+          Scores role fit, opportunity quality, key risks, and the best angle
+          to use if the role is worth pursuing.
         </p>
 
         <div
@@ -610,8 +616,22 @@ export default function Home() {
                 </Pill>
               )}
 
-              {result.comp_opacity_flag && (
-                <Pill color="var(--amber)">Comp opacity</Pill>
+              {result.stretch_risk && (
+                <Pill color={riskColor(result.stretch_risk)}>
+                  Stretch: {labelize(result.stretch_risk)}
+                </Pill>
+              )}
+
+              {result.credential_risk && (
+                <Pill color={riskColor(result.credential_risk)}>
+                  Credential: {labelize(result.credential_risk)}
+                </Pill>
+              )}
+
+              {result.domain_risk && (
+                <Pill color={riskColor(result.domain_risk)}>
+                  Domain: {labelize(result.domain_risk)}
+                </Pill>
               )}
             </div>
 
@@ -635,6 +655,22 @@ export default function Home() {
                 helper="Is the role senior, strategic, and worth the time?"
               />
             </div>
+
+            {result.pursuit_summary && (
+              <Section label="Pursuit Summary">
+                <p
+                  style={{
+                    margin: 0,
+                    fontFamily: "var(--serif)",
+                    fontSize: "18px",
+                    color: "var(--text)",
+                    lineHeight: 1.55,
+                  }}
+                >
+                  {result.pursuit_summary}
+                </p>
+              </Section>
+            )}
 
             {result.best_positioning_angle && (
               <Section label="Best Positioning Angle">

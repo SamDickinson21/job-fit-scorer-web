@@ -7,6 +7,14 @@ export const runtime = "nodejs"
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 const MODEL = "openrouter/free"
 
+type LetterRequestBody = {
+  title?: string
+  company?: string
+  role?: string
+  jdText?: string
+  result?: object
+}
+
 function cleanLetter(text: string): string {
   return text
     .replace(/\u2014/g, "-")
@@ -19,16 +27,9 @@ function cleanLetter(text: string): string {
     .trim()
 }
 
-type LetterRequestBody = {
-  title?: string
-  company?: string
-  role?: string
-  jdText?: string
-  result?: object
-}
-
 export async function POST(req: NextRequest) {
   const apiKey = process.env.OPENROUTER_API_KEY
+
   if (!apiKey) {
     return NextResponse.json(
       { error: "Server is missing OPENROUTER_API_KEY. Set it in your Vercel project settings." },
@@ -37,6 +38,7 @@ export async function POST(req: NextRequest) {
   }
 
   let body: LetterRequestBody
+
   try {
     body = await req.json()
   } catch {
@@ -44,6 +46,7 @@ export async function POST(req: NextRequest) {
   }
 
   const jdText = (body.jdText || "").trim()
+
   if (!jdText || !body.result) {
     return NextResponse.json({ error: "Missing job description or score result" }, { status: 400 })
   }
@@ -57,6 +60,7 @@ export async function POST(req: NextRequest) {
   const userPrompt = buildLetterPrompt(PROFILE, jdText, body.result, metadata)
 
   let upstream: Response
+
   try {
     upstream = await fetch(OPENROUTER_URL, {
       method: "POST",
@@ -71,15 +75,19 @@ export async function POST(req: NextRequest) {
           { role: "user", content: userPrompt },
         ],
         temperature: 0.25,
-        max_tokens: 900
+        max_tokens: 700,
       }),
     })
   } catch {
-    return NextResponse.json({ error: "Could not reach OpenRouter. Check your connection and try again." }, { status: 502 })
+    return NextResponse.json(
+      { error: "Could not reach OpenRouter. Check your connection and try again." },
+      { status: 502 }
+    )
   }
 
   if (!upstream.ok) {
     const text = await upstream.text().catch(() => "")
+
     return NextResponse.json(
       { error: `OpenRouter returned ${upstream.status}. ${text.slice(0, 300)}` },
       { status: 502 }
@@ -87,9 +95,7 @@ export async function POST(req: NextRequest) {
   }
 
   const data = await upstream.json()
-  const letter: string = cleanLetter(
-    data?.choices?.[0]?.message?.content ?? ""
-  )
+  const letter = cleanLetter(data?.choices?.[0]?.message?.content ?? "")
 
   return NextResponse.json({ letter })
 }

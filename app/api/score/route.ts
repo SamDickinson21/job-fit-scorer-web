@@ -5,7 +5,7 @@ import { SCORE_SYSTEM_PROMPT, buildScorePrompt } from "@/lib/prompts"
 export const runtime = "nodejs"
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-const MODEL = "qwen/qwen3.7-plus"
+const MODEL = "openrouter/free"
 
 type ScoreRequestBody = {
   title?: string
@@ -33,10 +33,7 @@ export async function POST(req: NextRequest) {
 
   if (!apiKey) {
     return NextResponse.json(
-      {
-        error:
-          "Server is missing OPENROUTER_API_KEY. Set it in your Vercel project settings.",
-      },
+      { error: "Server is missing OPENROUTER_API_KEY. Set it in your Vercel project settings." },
       { status: 500 }
     )
   }
@@ -52,10 +49,7 @@ export async function POST(req: NextRequest) {
   const jdText = (body.jdText || "").trim()
 
   if (!jdText) {
-    return NextResponse.json(
-      { error: "Job description is empty" },
-      { status: 400 }
-    )
+    return NextResponse.json({ error: "Job description is empty" }, { status: 400 })
   }
 
   const metadata = {
@@ -82,21 +76,20 @@ export async function POST(req: NextRequest) {
           { role: "user", content: userPrompt },
         ],
         temperature: 0.2,
-        response_format: { type: "json_object" },
+        // Enable only if your selected OpenRouter model supports JSON mode.
+        // response_format: { type: "json_object" },
       }),
     })
   } catch {
     return NextResponse.json(
-      {
-        error:
-          "Could not reach OpenRouter. Check your connection and try again.",
-      },
+      { error: "Could not reach OpenRouter. Check your connection and try again." },
       { status: 502 }
     )
   }
 
   if (!upstream.ok) {
     const text = await upstream.text().catch(() => "")
+
     return NextResponse.json(
       { error: `OpenRouter returned ${upstream.status}. ${text.slice(0, 300)}` },
       { status: 502 }
@@ -104,19 +97,14 @@ export async function POST(req: NextRequest) {
   }
 
   const data = await upstream.json()
-  const content: string = stripJsonFence(
-    data?.choices?.[0]?.message?.content ?? ""
-  )
+  const content = stripJsonFence(data?.choices?.[0]?.message?.content ?? "")
 
   try {
     const result = JSON.parse(content)
     return NextResponse.json({ result })
   } catch {
     return NextResponse.json(
-      {
-        error: "The model's response wasn't valid JSON. Try again.",
-        raw: content,
-      },
+      { error: "The model's response wasn't valid JSON. Try again.", raw: content },
       { status: 502 }
     )
   }
