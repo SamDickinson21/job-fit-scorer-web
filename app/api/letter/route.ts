@@ -1,95 +1,80 @@
-import { NextRequest, NextResponse } from "next/server";
-import { PROFILE } from "@/lib/profile";
-import { LETTER_SYSTEM_PROMPT, buildLetterPrompt } from "@/lib/prompts";
+import { NextRequest, NextResponse } from "next/server"
+import { EVIDENCE, DEFAULT_PRIMARY_EVIDENCE, DEFAULT_SUPPORTING_EVIDENCE, getEvidence, isEvidenceId, type EvidenceId } from "@/lib/evidence"
+import { LETTER_PLAN_SYSTEM_PROMPT, LETTER_DRAFT_SYSTEM_PROMPT, buildLetterPlanPrompt, buildLetterDraftPrompt } from "@/lib/prompts"
 
-export const runtime = "nodejs";
+export const runtime = "nodejs"
 
-const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+const LETTER_MODEL = process.env.OPENROUTER_LETTER_MODEL || "openai/gpt-4.1-mini"
+const PLAN_MODEL = process.env.OPENROUTER_PLAN_MODEL || process.env.OPENROUTER_LETTER_MODEL || "openai/gpt-4.1-mini"
 
-// Cover letters need a writing model, not the cheapest structured-output model.
-// Override in Vercel with OPENROUTER_LETTER_MODEL if you prefer another slug.
-const MODEL =
-  process.env.OPENROUTER_LETTER_MODEL ||
-  process.env.OPENROUTER_MODEL ||
-  "openai/gpt-4o-mini";
+type LetterRequestBody = {
+  title?: string
+  company?: string
+  role?: string
+  jdText?: string
+  result?: object
+}
 
-const BANNED_LETTER_PHRASES = [
+type ChatMessage = {
+  role: "system" | "user" | "assistant"
+  content: string
+}
+
+type LetterPlan = {
+  opening_thesis: string
+  primary_evidence_id: EvidenceId
+  supporting_evidence_id: EvidenceId
+  domain_bridge: string
+  gap_strategy: string
+  must_not_claim: string[]
+  tone_notes: string[]
+}
+
+const HARD_BANNED_PHRASES = [
   "trusted proxy",
   "strategic proxy",
   "ceo proxy",
   "act as a ceo proxy",
   "operated as a ceo proxy",
-  "density of scope",
-  "scope density",
-  "executive partnership density",
-  "matches exactly",
-  "directly matches",
-  "that's exactly what i did",
+  "served as a ceo proxy",
   "i am writing to express my interest",
   "i am excited to apply",
   "dear hiring manager",
-  "proven track record",
-  "fast-paced environment",
-  "dynamic team",
-  "measurable impact",
-  "data-driven decisions",
-  "strategic outcomes",
-  "presents a unique challenge",
-  "driving cross-functional execution",
-  "high-impact results",
-  "enhance operational efficiency",
-  "contribute effectively",
-  "tangible outcomes",
+  "my skills and experience align perfectly",
+  "i believe i would be a great fit",
+  "throughout my career",
+  "i bring a unique blend",
   "i have successfully led",
   "across clinical, operations, finance, and growth",
-  "clinical, operations, finance, and growth",
-  "create structure from chaos",
-  "turn ambiguity into execution",
-  "presents a unique opportunity",
-  "rapid scaling in the medicare advantage space",
-  "navigating ambiguity while",
-  "actionable insights",
-  "informed decisions",
-  "streamline operations",
-  "improve the flow of information",
-  "strategic direction",
-  "strategic mindset",
-  "drive results",
-  "i am confident",
-  "i look forward to",
-  "i thrive in environments",
-  "resonates with my experience",
-  "critical for improving decision quality",
-  "operational leverage",
-  "operational lever",
-  "builder-operator mindset",
-  "domain credibility",
-];
+  "led cross-functional initiatives across clinical",
+]
 
 const PLACEHOLDER_PATTERNS = [
   /\[[^\]]+\]/i,
-  /\bposition\s*\]/i,
   /\bcompany name\b/i,
   /\brelevant field\b/i,
   /\bprevious company\b/i,
   /\bspecific achievement\b/i,
-];
+  /\bcompany mission\b/i,
+]
 
-type LetterRequestBody = {
-  title?: string;
-  company?: string;
-  role?: string;
-  jdText?: string;
-  result?: object;
-};
-
-type ChatMessage = {
-  role: "system" | "user" | "assistant";
-  content: string;
-};
+const SOFT_REPLACEMENTS: Array<[RegExp, string]> = [
+  [/\bactionable insights\b/gi, "clear recommendations"],
+  [/\binformed decisions\b/gi, "clearer decisions"],
+  [/\bdata-driven decisions\b/gi, "clearer decisions"],
+  [/\bstrategic outcomes\b/gi, "operating decisions"],
+  [/\bdrive results\b/gi, "move the work forward"],
+  [/\benhance operational efficiency\b/gi, "make execution cleaner"],
+  [/\bcontribute effectively\b/gi, "be useful quickly"],
+  [/\btangible outcomes\b/gi, "real outcomes"],
+  [/\bcreate structure from chaos\b/gi, "create structure where the path is unclear"],
+  [/\bturn ambiguity into execution\b/gi, "turn ambiguity into clearer priorities and action"],
+  [/\bI look forward to the possibility of discussing[^.]*\./gi, ""],
+]
 
 function normalizePlainText(text: string): string {
-  return text
+  let cleaned = text
     .replace(/\u2014/g, "-")
     .replace(/\u2013/g, "-")
     .replace(/\u2011/g, "-")
@@ -97,83 +82,93 @@ function normalizePlainText(text: string): string {
     .replace(/\u00A0/g, " ")
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")
-    .replace(/^```(?:text)?/i, "")
+    .replace(/^```(?:text|json)?/i, "")
     .replace(/```$/i, "")
-    .trim();
+
+  for (const [pattern, replacement] of SOFT_REPLACEMENTS) {
+    cleaned = cleaned.replace(pattern, replacement)
+  }
+
+  return cleaned.trim()
+}
+
+function stripJsonFence(content: string): string {
+  let cleaned = content.trim()
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```json/i, "").replace(/^```/, "").replace(/```$/, "").trim()
+  }
+  return cleaned
 }
 
 function wordCount(text: string): number {
-  return text.trim().split(/\s+/).filter(Boolean).length;
+  return text.trim().split(/\s+/).filter(Boolean).length
 }
 
 function finalizeLetter(text: string): string {
-  let cleaned = normalizePlainText(text);
-
-  // Remove accidental salutation or signature/header at the top.
-  cleaned = cleaned.replace(/^Dear Hiring Manager,?\s*\n+/i, "");
-  cleaned = cleaned.replace(/^Sam\s*\n+/i, "");
-
-  // Collapse excessive blank lines.
-  cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
-
-  // Remove duplicate trailing signatures, then add one clean signature.
-  cleaned = cleaned.replace(/(\n\s*Sam\s*)+$/i, "").trim();
-  return `${cleaned}\n\nSam`;
+  let cleaned = normalizePlainText(text)
+  cleaned = cleaned.replace(/^Dear [^\n]+\n+/i, "")
+  cleaned = cleaned.replace(/^Sam\s*\n+/i, "")
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim()
+  cleaned = cleaned.replace(/(\n\s*Sam\s*)+$/i, "").trim()
+  return `${cleaned}\n\nSam`
 }
 
-function findBannedPhrase(text: string): string | null {
-  const lower = text.toLowerCase();
-  return BANNED_LETTER_PHRASES.find((phrase) => lower.includes(phrase)) || null;
+function findHardBannedPhrase(text: string): string | null {
+  const lower = text.toLowerCase()
+  return HARD_BANNED_PHRASES.find(phrase => lower.includes(phrase)) || null
 }
 
 function findPlaceholder(text: string): string | null {
-  const match = PLACEHOLDER_PATTERNS.find((pattern) => pattern.test(text));
-  return match ? match.toString() : null;
+  const match = PLACEHOLDER_PATTERNS.find(pattern => pattern.test(text))
+  return match ? match.toString() : null
 }
 
 function findUnsupportedClaim(text: string): string | null {
-  const lower = text.toLowerCase();
-
   const unsupportedPatterns: Array<[RegExp, string]> = [
-    [/\bi have successfully led\b/i, 'generic unsupported claim: "I have successfully led"'],
-    [/\bled cross-functional initiatives across clinical/i, 'unsupported clinical cross-functional claim'],
-    [/clinical, operations, finance, and growth/i, 'parrots Clover function list as experience'],
-    [/I understand the importance of establishing/i, 'generic JD-parroting operating rhythm claim'],
-    [/I have consistently/i, 'generic overclaim beginning with I have consistently'],
-    [/\bled .*clinical.*operations.*finance.*growth/i, 'claims leadership across Clover-specific functions'],
-    [/\bowned .*medicare advantage/i, 'claims direct Medicare Advantage ownership'],
-    [/\bled .*medicare advantage/i, 'claims direct Medicare Advantage leadership'],
-  ];
+    [/\bled cross-functional initiatives across clinical/i, "unsupported clinical cross-functional claim"],
+    [/clinical, operations, finance, and growth/i, "parrots exact Clover function list as Sam experience"],
+    [/\bled .*clinical.*operations.*finance.*growth/i, "claims leadership across Clover-specific functions"],
+    [/\bowned .*medicare advantage/i, "claims direct Medicare Advantage ownership"],
+    [/\bled .*medicare advantage/i, "claims direct Medicare Advantage leadership"],
+    [/\bserved .*board/i, "possible board attendance/presentation claim"],
+    [/\bpresented .*board/i, "board presentation claim"],
+    [/\bmanaged account executives/i, "formal sales management claim"],
+    [/\bmanaged sales/i, "formal sales management claim"],
+    [/\bsalesforce\b/i, "possible unsupported Salesforce claim"],
+    [/\baws\b/i, "possible unsupported AWS claim"],
+  ]
 
-  const match = unsupportedPatterns.find(([pattern]) => pattern.test(lower));
-  return match ? match[1] : null;
+  const match = unsupportedPatterns.find(([pattern]) => pattern.test(text))
+  return match ? match[1] : null
 }
 
 function assessLetter(text: string): { ok: boolean; reason?: string } {
-  const placeholder = findPlaceholder(text);
-  if (placeholder) return { ok: false, reason: `placeholder pattern ${placeholder}` };
+  const placeholder = findPlaceholder(text)
+  if (placeholder) return { ok: false, reason: `placeholder pattern ${placeholder}` }
 
-  const banned = findBannedPhrase(text);
-  if (banned) return { ok: false, reason: `banned phrase "${banned}"` };
+  const banned = findHardBannedPhrase(text)
+  if (banned) return { ok: false, reason: `banned phrase "${banned}"` }
 
-  const unsupported = findUnsupportedClaim(text);
-  if (unsupported) return { ok: false, reason: unsupported };
+  const unsupported = findUnsupportedClaim(text)
+  if (unsupported) return { ok: false, reason: unsupported }
 
-  const wc = wordCount(text.replace(/\n\s*Sam\s*$/i, ""));
-  if (wc < 300) return { ok: false, reason: `too short (${wc} words)` };
-  if (wc > 700) return { ok: false, reason: `too long (${wc} words)` };
+  if (/^\s*Dear\b/i.test(text)) return { ok: false, reason: "uses salutation" }
+  if (!/\n\s*Sam\s*$/i.test(text)) return { ok: false, reason: "missing Sam signature" }
 
-  if (/^\s*Dear\b/i.test(text)) return { ok: false, reason: "uses salutation" };
-  if (!/\n\s*Sam\s*$/i.test(text)) return { ok: false, reason: "missing Sam signature" };
+  const wc = wordCount(text.replace(/\n\s*Sam\s*$/i, ""))
+  if (wc < 300) return { ok: false, reason: `too short (${wc} words)` }
+  if (wc > 750) return { ok: false, reason: `too long (${wc} words)` }
 
-  return { ok: true };
+  return { ok: true }
 }
 
 async function callOpenRouter(
   apiKey: string,
+  model: string,
   messages: ChatMessage[],
   maxTokens: number,
-  temperature = 0.45,
+  temperature: number,
+  useJsonMode = false,
 ) {
   const upstream = await fetch(OPENROUTER_URL, {
     method: "POST",
@@ -182,181 +177,284 @@ async function callOpenRouter(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: MODEL,
+      model,
       messages,
       temperature,
       max_tokens: maxTokens,
+      ...(useJsonMode ? { response_format: { type: "json_object" } } : {}),
     }),
-  });
+  })
 
   if (!upstream.ok) {
-    const text = await upstream.text().catch(() => "");
-    throw new Error(
-      `OpenRouter returned ${upstream.status}. ${text.slice(0, 300)}`,
-    );
+    const text = await upstream.text().catch(() => "")
+    throw new Error(`OpenRouter returned ${upstream.status}. ${text.slice(0, 300)}`)
   }
 
-  const data = await upstream.json();
-  const choice = data?.choices?.[0];
+  const data = await upstream.json()
+  const choice = data?.choices?.[0]
 
   return {
     content: normalizePlainText(choice?.message?.content ?? ""),
     finishReason: choice?.finish_reason as string | undefined,
-  };
-}
-
-function makeGenerationPrompt(basePrompt: string, retryReason?: string): string {
-  if (!retryReason) return basePrompt;
-
-  return `${basePrompt}
-
-The prior cover letter attempt failed this quality check: ${retryReason}.
-
-Write a new version from scratch. Do not repair the prior draft. Do not use placeholders, generic cover-letter framing, salutation, banned phrases, or unsupported claims. Make it specific, substantial, and usable. Only make first-person claims that are directly supported by Sam's profile or fit evaluation.`;
-}
-
-async function generateCompleteLetter(
-  apiKey: string,
-  baseMessages: ChatMessage[],
-): Promise<string> {
-  let first = await callOpenRouter(apiKey, baseMessages, 6000, 0.45);
-  let combined = first.content;
-  let finishReason = first.finishReason;
-
-  // Continue automatically if the model stops because of token length.
-  for (let attempt = 0; finishReason === "length" && attempt < 2; attempt += 1) {
-    const continuationMessages: ChatMessage[] = [
-      {
-        role: "system",
-        content:
-          "Continue the unfinished cover letter. Do not restart. Do not repeat earlier sentences. Keep the same voice. Finish naturally and end with Sam on its own line. Use plain ASCII text only. Do not use placeholders, salutation, or proxy language.",
-      },
-      {
-        role: "user",
-        content: `Continue exactly from this unfinished letter and finish it.\n\n${combined}`,
-      },
-    ];
-
-    const next = await callOpenRouter(apiKey, continuationMessages, 2500, 0.35);
-    combined = `${combined}${combined.endsWith(" ") || next.content.startsWith(" ") ? "" : " "}${next.content}`;
-    finishReason = next.finishReason;
   }
-
-  return finalizeLetter(combined);
 }
-
 
 function hasMedicareCosSignal(jdText: string, metadata: { title: string; company: string; role: string }): boolean {
-  const haystack = `${metadata.title} ${metadata.company} ${metadata.role}
-${jdText}`.toLowerCase();
-  return haystack.includes("chief of staff") && haystack.includes("medicare advantage");
+  const h = `${metadata.title} ${metadata.company} ${metadata.role}\n${jdText}`.toLowerCase()
+  return h.includes("chief of staff") && h.includes("medicare advantage")
+}
+
+function hasAiSignal(jdText: string): boolean {
+  const h = jdText.toLowerCase()
+  return h.includes(" ai ") || h.includes("artificial intelligence") || h.includes("ai-powered") || h.includes("emerging technology")
+}
+
+function hasGtmSignal(jdText: string): boolean {
+  const h = jdText.toLowerCase()
+  return h.includes("gtm") || h.includes("go-to-market") || h.includes("pipeline") || h.includes("commercial") || h.includes("revenue")
+}
+
+function makeDefaultPlan(
+  jdText: string,
+  metadata: { title: string; company: string; role: string },
+): LetterPlan {
+  const company = metadata.company.trim() || "the company"
+  const primary: EvidenceId = DEFAULT_PRIMARY_EVIDENCE
+  const supporting: EvidenceId = hasGtmSignal(jdText) && !hasAiSignal(jdText) ? "icpPipelineRedesign" : DEFAULT_SUPPORTING_EVIDENCE
+
+  if (hasMedicareCosSignal(jdText, metadata)) {
+    return {
+      opening_thesis: `${company} is looking for more than an advisory Chief of Staff. The role needs someone who can create operating rhythm, clarify priorities, and help leadership act as the Medicare Advantage business scales.`,
+      primary_evidence_id: "commercialOperatingSystem",
+      supporting_evidence_id: "aiAssistedWorkflows",
+      domain_bridge: "Sam has not worked directly in Medicare Advantage, but he has worked across healthcare, life sciences, and complex technical markets and can bridge honestly from that experience.",
+      gap_strategy: "Do not mention 8 vs 10 years directly. Frame the stretch through operating scope, executive-facing work, and systems Sam has actually built.",
+      must_not_claim: [
+        "CEO proxy experience",
+        "direct Medicare Advantage experience",
+        "clinical operations leadership",
+        "board attendance or presentation",
+        "formal sales management",
+      ],
+      tone_notes: ["direct", "grounded", "operator", "honest about stretch without apologizing"],
+    }
+  }
+
+  return {
+    opening_thesis: `${company} appears to need someone who can bring structure to ambiguity, improve decision flow, and turn operating signals into clearer priorities.`,
+    primary_evidence_id: primary,
+    supporting_evidence_id: supporting,
+    domain_bridge: "Bridge any domain gap honestly from Sam's healthcare, life sciences, commercial strategy, analytics, and technical-market experience.",
+    gap_strategy: "Lead with operating scope and evidence. Do not over-explain gaps unless they are central to the role.",
+    must_not_claim: ["CEO proxy experience", "board presentation", "formal sales management", "direct Salesforce or AWS expertise"],
+    tone_notes: ["clear", "specific", "practical", "not generic"],
+  }
+}
+
+function validatePlan(raw: unknown, jdText: string, metadata: { title: string; company: string; role: string }): LetterPlan {
+  const fallback = makeDefaultPlan(jdText, metadata)
+  const obj = typeof raw === "object" && raw !== null ? raw as Record<string, unknown> : {}
+
+  const primary = isEvidenceId(obj.primary_evidence_id) ? obj.primary_evidence_id : fallback.primary_evidence_id
+  const supporting = isEvidenceId(obj.supporting_evidence_id) && obj.supporting_evidence_id !== primary
+    ? obj.supporting_evidence_id
+    : fallback.supporting_evidence_id
+
+  const plan: LetterPlan = {
+    opening_thesis: typeof obj.opening_thesis === "string" && obj.opening_thesis.trim() ? obj.opening_thesis.trim() : fallback.opening_thesis,
+    primary_evidence_id: primary,
+    supporting_evidence_id: supporting,
+    domain_bridge: typeof obj.domain_bridge === "string" && obj.domain_bridge.trim() ? obj.domain_bridge.trim() : fallback.domain_bridge,
+    gap_strategy: typeof obj.gap_strategy === "string" && obj.gap_strategy.trim() ? obj.gap_strategy.trim() : fallback.gap_strategy,
+    must_not_claim: Array.isArray(obj.must_not_claim) ? obj.must_not_claim.map(String).filter(Boolean) : fallback.must_not_claim,
+    tone_notes: Array.isArray(obj.tone_notes) ? obj.tone_notes.map(String).filter(Boolean) : fallback.tone_notes,
+  }
+
+  if (hasMedicareCosSignal(jdText, metadata)) {
+    plan.primary_evidence_id = "commercialOperatingSystem"
+    plan.supporting_evidence_id = "aiAssistedWorkflows"
+    plan.domain_bridge = fallback.domain_bridge
+    plan.gap_strategy = fallback.gap_strategy
+    plan.must_not_claim = fallback.must_not_claim
+  }
+
+  return plan
+}
+
+async function generatePlan(
+  apiKey: string,
+  jdText: string,
+  scoreResult: object,
+  metadata: { title: string; company: string; role: string },
+): Promise<LetterPlan> {
+  const evidenceCatalog = Object.values(EVIDENCE)
+  const userPrompt = buildLetterPlanPrompt(jdText, scoreResult, evidenceCatalog, metadata)
+
+  try {
+    const result = await callOpenRouter(
+      apiKey,
+      PLAN_MODEL,
+      [
+        { role: "system", content: LETTER_PLAN_SYSTEM_PROMPT },
+        { role: "user", content: userPrompt },
+      ],
+      1200,
+      0.1,
+      true,
+    )
+    const parsed = JSON.parse(stripJsonFence(result.content))
+    return validatePlan(parsed, jdText, metadata)
+  } catch {
+    return makeDefaultPlan(jdText, metadata)
+  }
+}
+
+async function generateDraft(
+  apiKey: string,
+  jdText: string,
+  scoreResult: object,
+  plan: LetterPlan,
+  metadata: { title: string; company: string; role: string },
+  retryReason?: string,
+): Promise<string> {
+  const selectedEvidence = getEvidence([plan.primary_evidence_id, plan.supporting_evidence_id, "healthcareLifeSciencesBridge"])
+  const basePrompt = buildLetterDraftPrompt(jdText, scoreResult, plan, selectedEvidence, metadata)
+  const retryInstruction = retryReason
+    ? `\n\nThe previous attempt failed this quality check: ${retryReason}. Write a fresh version from the approved plan and evidence. Do not reuse the failed draft.`
+    : ""
+
+  const first = await callOpenRouter(
+    apiKey,
+    LETTER_MODEL,
+    [
+      { role: "system", content: LETTER_DRAFT_SYSTEM_PROMPT },
+      { role: "user", content: `${basePrompt}${retryInstruction}` },
+    ],
+    4500,
+    0.35,
+    false,
+  )
+
+  let combined = first.content
+  let finishReason = first.finishReason
+
+  for (let attempt = 0; finishReason === "length" && attempt < 2; attempt += 1) {
+    const next = await callOpenRouter(
+      apiKey,
+      LETTER_MODEL,
+      [
+        {
+          role: "system",
+          content:
+            "Continue the unfinished cover letter. Do not restart. Do not repeat earlier sentences. Keep the same voice. Finish naturally and end with Sam on its own line. Use only the already-approved evidence.",
+        },
+        { role: "user", content: `Continue exactly from this unfinished letter and finish it.\n\n${combined}` },
+      ],
+      2000,
+      0.25,
+      false,
+    )
+    combined = `${combined}${combined.endsWith(" ") || next.content.startsWith(" ") ? "" : " "}${next.content}`
+    finishReason = next.finishReason
+  }
+
+  return finalizeLetter(combined)
 }
 
 function safeCompanyName(metadata: { company: string; role: string; title: string }): string {
-  return metadata.company.trim() || "the company";
+  return metadata.company.trim() || "the company"
 }
 
 function buildFallbackLetter(
   jdText: string,
   metadata: { title: string; company: string; role: string },
 ): string {
-  const company = safeCompanyName(metadata);
+  const company = safeCompanyName(metadata)
 
   if (hasMedicareCosSignal(jdText, metadata)) {
     return finalizeLetter(`What stands out to me about this role is that ${company} is not looking for a traditional advisory Chief of Staff. The Medicare Advantage business is scaling quickly, and the CEO needs someone who can create operating rhythm, clarify priorities, and help the organization focus on the work that matters.
 
 That is the kind of work I did at Akadeum Life Sciences. I built and owned the commercial operating system behind forecasting, pipeline management, executive reporting, board preparation, and go-to-market execution, connecting NetSuite, HubSpot, Power BI, R, and automation workflows into a source of truth leadership could rely on. The work was not just technical. I partnered closely with the CEO, COO, CFO, and commercial leadership to turn fragmented data and ambiguous market signals into clearer operating decisions.
 
+That system mattered because it gave leadership a better way to see the business. It connected pipeline quality, forecast movement, customer behavior, and commercial execution in one place, which made it easier to identify risks, sharpen priorities, and focus the team on the work most likely to move the business forward.
+
 ${company}'s emphasis on using AI to improve execution also stood out to me. At Akadeum, I built AI-assisted workflows for lead routing and sales dossier generation that reduced average speed-to-first-touch from nearly 48 hours to under 20 hours. I see AI as a practical way to help teams move faster, reduce manual drag, and keep attention on the work that matters.
 
 I have not worked directly in Medicare Advantage, but I have spent much of my career in healthcare, life sciences, and complex technical markets, including Akadeum, DePuy Synthes, Stryker, and Spectrum Health. I am comfortable learning high-context environments quickly, especially when the work depends on systems thinking, clear communication, and disciplined execution.
 
-What I would bring to ${company} is a practical operating style: build the system, clarify the tradeoffs, surface what matters, and help leadership act.`);
+What I would bring to ${company} is a practical operating style: build the system, clarify the tradeoffs, surface what matters, and help leadership act.`)
   }
 
-  return finalizeLetter(`What stands out to me about this role is its emphasis on turning ambiguity into clearer operating decisions. That is the work I am looking for next: building the systems, rhythms, and visibility leadership needs to focus on the right priorities and move with more confidence.
+  return finalizeLetter(`What stands out to me about this role is the need for someone who can bring structure to ambiguity and help leadership move from scattered signals to clearer priorities. That is the kind of work I am looking for next.
 
 At Akadeum Life Sciences, I built and owned the commercial operating system behind forecasting, pipeline management, executive reporting, board preparation, and go-to-market execution. I connected NetSuite, HubSpot, Power BI, R, and automation workflows into a source of truth leadership could rely on. The work was not just technical. I partnered closely with the CEO, COO, CFO, and commercial leadership to turn fragmented data and ambiguous market signals into clearer operating decisions.
+
+That operating system gave leadership a better way to see what was happening across the business, where execution was getting stuck, and which priorities needed attention. It helped connect reporting, forecasting, pipeline quality, and commercial execution into a more useful operating rhythm.
 
 I also built AI-assisted workflows for lead routing and sales dossier generation that reduced average speed-to-first-touch from nearly 48 hours to under 20 hours. I see AI as a practical way to reduce manual drag, improve focus, and help teams spend more time on the work that matters.
 
 My path has been less traditional than some operations or Chief of Staff candidates, but it has been deeply operating-focused. I have worked across healthcare, life sciences, commercial strategy, analytics, and technical markets, and I am comfortable learning high-context environments quickly when the work depends on systems thinking, clear communication, and disciplined execution.
 
-What I would bring to ${company} is a practical operating style: build the system, clarify the tradeoffs, surface what matters, and help leadership act.`);
+What I would bring to ${company} is a practical operating style: build the system, clarify the tradeoffs, surface what matters, and help leadership act.`)
 }
 
 export async function POST(req: NextRequest) {
-  const apiKey = process.env.OPENROUTER_API_KEY;
+  const apiKey = process.env.OPENROUTER_API_KEY
 
   if (!apiKey) {
     return NextResponse.json(
-      {
-        error:
-          "Server is missing OPENROUTER_API_KEY. Set it in your Vercel project settings.",
-      },
+      { error: "Server is missing OPENROUTER_API_KEY. Set it in your Vercel project settings." },
       { status: 500 },
-    );
+    )
   }
 
-  let body: LetterRequestBody;
+  let body: LetterRequestBody
 
   try {
-    body = await req.json();
+    body = await req.json()
   } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 })
   }
 
-  const jdText = (body.jdText || "").trim();
+  const jdText = (body.jdText || "").trim()
 
   if (!jdText || !body.result) {
-    return NextResponse.json(
-      { error: "Missing job description or score result" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "Missing job description or score result" }, { status: 400 })
   }
 
   const metadata = {
     title: body.title || "",
     company: body.company || "",
     role: body.role || "",
-  };
-
-  const userPrompt = buildLetterPrompt(PROFILE, jdText, body.result, metadata);
+  }
 
   try {
-    let lastReason = "";
-    let letter = "";
+    const plan = await generatePlan(apiKey, jdText, body.result, metadata)
+    let lastReason = ""
 
-    // Try up to three full generations. Failed drafts are not used as rewrite input,
-    // because that produced generic template letters before.
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const messages: ChatMessage[] = [
-        { role: "system", content: LETTER_SYSTEM_PROMPT },
-        { role: "user", content: makeGenerationPrompt(userPrompt, lastReason || undefined) },
-      ];
-
-      letter = await generateCompleteLetter(apiKey, messages);
-      const assessment = assessLetter(letter);
-      if (assessment.ok) return NextResponse.json({ letter });
-      lastReason = assessment.reason || "unknown quality failure";
+      const letter = await generateDraft(apiKey, jdText, body.result, plan, metadata, lastReason || undefined)
+      const assessment = assessLetter(letter)
+      if (assessment.ok) {
+        return NextResponse.json({ letter, plan })
+      }
+      lastReason = assessment.reason || "unknown quality failure"
     }
 
-    const fallback = buildFallbackLetter(jdText, metadata);
-    const fallbackAssessment = assessLetter(fallback);
-
-    if (fallbackAssessment.ok) {
-      return NextResponse.json({ letter: fallback, fallback_used: true, fallback_reason: lastReason });
-    }
-
-    return NextResponse.json(
-      {
-        error: `The model could not produce a usable cover letter after 3 attempts. Last issue: ${lastReason}. Set OPENROUTER_LETTER_MODEL to a stronger writing model, such as openai/gpt-4o-mini or openai/gpt-4.1-mini.`,
-        letter,
-      },
-      { status: 502 },
-    );
+    const fallback = buildFallbackLetter(jdText, metadata)
+    return NextResponse.json({
+      letter: fallback,
+      plan,
+      fallback_used: true,
+      fallback_reason: lastReason,
+    })
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Something went wrong drafting the letter.";
-    return NextResponse.json({ error: message }, { status: 502 });
+    const fallback = buildFallbackLetter(jdText, metadata)
+    const message = err instanceof Error ? err.message : "Something went wrong drafting the letter."
+    return NextResponse.json({
+      letter: fallback,
+      fallback_used: true,
+      fallback_reason: message,
+    })
   }
 }
