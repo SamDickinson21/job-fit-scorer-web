@@ -9,6 +9,8 @@ export type EvidenceId =
   | "lifeSciencesClinicalDevelopmentBridge"
   | "revOpsSalesforceDealDeskBridge"
   | "authorityStretchBridge"
+  | "pharmaSalesOpsAnalyticsBridge"
+  | "enterpriseAiDeliveryBridge"
 
 export type EvidenceItem = {
   id: EvidenceId
@@ -179,6 +181,45 @@ export const EVIDENCE: Record<EvidenceId, EvidenceItem> = {
       "Do not claim Salesforce architecture ownership.",
       "Do not claim direct deal desk ownership.",
       "Do not claim commission validation ownership.",
+    ],
+  },
+
+  pharmaSalesOpsAnalyticsBridge: {
+    id: "pharmaSalesOpsAnalyticsBridge",
+    label: "Pharma sales ops / analytics bridge",
+    usableClaim:
+      "Sam has built commercial systems and revenue visibility in life sciences, but has not directly owned pharma field sales operations mechanics such as incentive compensation, territory/roster management, or oncology launch.",
+    letterParagraph:
+      "I have not directly owned pharma field sales operations mechanics such as incentive compensation, territory/roster management, or oncology launch planning. The bridge is the commercial operating work I have done: building the systems, reporting cadence, and decision infrastructure that helped Sales, Marketing, Finance, and leadership operate from a clearer view of pipeline quality, forecast movement, customer behavior, and commercial execution.",
+    supportingDetails: [
+      "Use for biotech/pharma sales operations, commercial analytics, field enablement, QBR, incentive compensation, territory/roster, and oncology-launch-adjacent roles.",
+      "This bridge should be honest and should not claim direct pharma sales operations ownership.",
+    ],
+    allowedAngles: ["pharma_sales_ops_analytics", "sales_operations", "commercial_analytics", "field_enablement", "life_sciences"],
+    avoidClaims: [
+      "Do not claim incentive compensation ownership.",
+      "Do not claim territory or roster management ownership.",
+      "Do not claim oncology launch experience.",
+      "Do not claim formal pharma field sales operations ownership.",
+    ],
+  },
+  enterpriseAiDeliveryBridge: {
+    id: "enterpriseAiDeliveryBridge",
+    label: "Enterprise AI delivery bridge",
+    usableClaim:
+      "Sam has built practical AI-assisted commercial workflows, but is not an enterprise AI/data science, ML production, or AI governance leader.",
+    letterParagraph:
+      "I would not position myself as an enterprise AI/data science leader or ML production owner. My AI experience is practical and operational: I built AI-assisted commercial workflows that reduced manual drag, improved prioritization, and helped the team move faster. That is most useful where the challenge is adoption, workflow design, and business translation rather than pure model development or enterprise AI governance.",
+    supportingDetails: [
+      "Use for roles centered on enterprise AI adoption, AI governance, production analytics, or technical AI delivery where Sam is a partial fit only.",
+      "This should usually lower application priority unless the role clearly values operational adoption over technical AI ownership.",
+    ],
+    allowedAngles: ["ai_operations", "technical_operations", "business_translation", "workflow_automation"],
+    avoidClaims: [
+      "Do not claim ML engineering experience.",
+      "Do not claim enterprise AI governance ownership.",
+      "Do not claim production AI platform ownership.",
+      "Do not claim formal data science team management.",
     ],
   },
   authorityStretchBridge: {

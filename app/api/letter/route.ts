@@ -20,6 +20,8 @@ import {
   hasMedicareOrPayerSignal,
   hasRevOpsHardGapSignal,
   hasAuthorityGapSignal,
+  hasPharmaSalesOpsSignal,
+  hasEnterpriseAiDeliverySignal,
   selectedEvidenceIdsForPlan,
   type LetterMetadata,
   type LetterPlan,
@@ -190,7 +192,15 @@ function findUnsupportedClaim(text: string): string | null {
     [/\bowned .*deal desk/i, "claims formal deal desk ownership"],
     [/\bled .*deal desk/i, "claims formal deal desk ownership"],
     [/\bowned .*commission/i, "claims commission ownership"],
+    [/\bowned .*incentive compensation/i, "claims incentive compensation ownership"],
+    [/\bdesigned .*incentive compensation/i, "claims incentive compensation design ownership"],
+    [/\bowned .*territory/i, "claims territory ownership"],
+    [/\bowned .*roster/i, "claims roster ownership"],
+    [/\bled .*oncology launch/i, "claims oncology launch leadership"],
+    [/\bowned .*oncology launch/i, "claims oncology launch ownership"],
     [/\bowned .*quote-to-close/i, "claims quote-to-close ownership"],
+    [/\b(machine learning|ml) (model|models|platform|platforms)\b/i, "possible unsupported ML ownership claim"],
+    [/\benterprise ai governance\b/i, "possible unsupported enterprise AI governance claim"],
     [/\baws\b/i, "possible unsupported AWS claim"],
   ]
 
@@ -260,7 +270,9 @@ function makeDefaultPlan(jdText: string, metadata: LetterMetadata, scoreResult: 
   const primary: EvidenceId = DEFAULT_PRIMARY_EVIDENCE
   let supporting: EvidenceId = DEFAULT_SUPPORTING_EVIDENCE
 
-  if (hasRevOpsHardGapSignal(jdText, metadata)) supporting = "revOpsSalesforceDealDeskBridge"
+  if (hasPharmaSalesOpsSignal(jdText, metadata)) supporting = "pharmaSalesOpsAnalyticsBridge"
+  else if (hasEnterpriseAiDeliverySignal(jdText, metadata)) supporting = "enterpriseAiDeliveryBridge"
+  else if (hasRevOpsHardGapSignal(jdText, metadata)) supporting = "revOpsSalesforceDealDeskBridge"
   else if (hasAuthorityGapSignal(jdText, metadata) || String(scoreResult.authority_risk || "").toLowerCase() === "high") supporting = "authorityStretchBridge"
   else if (hasGtmSignal(jdText) && !hasAiSignal(jdText)) supporting = "icpPipelineRedesign"
 
@@ -325,6 +337,16 @@ function validatePlan(raw: unknown, jdText: string, metadata: LetterMetadata, sc
     plan.domain_bridge = forced.domain_bridge
     plan.gap_strategy = forced.gap_strategy
     plan.must_not_claim = forced.must_not_claim
+  }
+
+  if (hasPharmaSalesOpsSignal(jdText, metadata)) {
+    plan.supporting_evidence_id = "pharmaSalesOpsAnalyticsBridge"
+    plan.must_not_claim = Array.from(new Set([...(plan.must_not_claim || []), "incentive compensation ownership", "territory or roster management ownership", "oncology launch ownership", "formal pharma field sales operations ownership"]))
+  }
+
+  if (hasEnterpriseAiDeliverySignal(jdText, metadata)) {
+    plan.supporting_evidence_id = "enterpriseAiDeliveryBridge"
+    plan.must_not_claim = Array.from(new Set([...(plan.must_not_claim || []), "enterprise AI governance ownership", "ML model ownership", "production AI platform ownership", "formal data science team management"]))
   }
 
   if (hasRevOpsHardGapSignal(jdText, metadata)) {
