@@ -102,6 +102,26 @@ const cases = [
       tool_or_functional_gap_risk: "medium",
     },
   },
+  {
+    name: "VMG Health - Manager Insights & Solutions",
+    body: {
+      company: "VMG Health",
+      role: "Manager, Insights & Solutions",
+      title: "Manager, Insights & Solutions",
+      jdText: `Manager, Insights & Solutions role in healthcare consulting. Build scalable analytical tools and reporting frameworks, oversee survey design/deployment/reporting (Qualtrics preferred), and support consulting engagements/training initiatives. Requires 3-5+ years in analytics/research/consulting roles, strong Excel and dashboards, and ability to convert ambiguous requests into structured outputs.`,
+    },
+    expected: {
+      verdict: "maybe",
+      role_fit_score: [68, 74],
+      opportunity_quality_score: [48, 58],
+      underleveling_risk: "high",
+      stretch_risk: "low",
+      credential_risk: "low",
+      domain_risk: "medium",
+      authority_risk: "low",
+      tool_or_functional_gap_risk: "medium",
+    },
+  },
 ]
 
 async function run() {

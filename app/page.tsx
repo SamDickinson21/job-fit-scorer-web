@@ -71,20 +71,64 @@ function labelize(value?: string): string {
   return value.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
 }
 
-function verdictColor(verdict?: string): string {
-  if (verdict === "strong_pursue") return "var(--green)"
-  if (verdict === "pursue") return "var(--green)"
-  if (verdict === "selective_pursue") return "var(--amber)"
-  if (verdict === "maybe") return "var(--amber)"
-  if (verdict === "skip") return "var(--red)"
-  return "var(--text-dim)"
+type PillTone = {
+  fg: string
+  border: string
+  bg: string
 }
 
-function riskColor(risk?: string): string {
-  if (risk === "low") return "var(--green)"
-  if (risk === "medium") return "var(--amber)"
-  if (risk === "high") return "var(--red)"
-  return "var(--text-dim)"
+const PILL_TONES: Record<"success" | "warning" | "danger" | "info" | "neutral", PillTone> = {
+  success: {
+    fg: "#68d391",
+    border: "rgba(104,211,145,0.55)",
+    bg: "rgba(63,174,106,0.12)",
+  },
+  warning: {
+    fg: "#f2c46b",
+    border: "rgba(242,196,107,0.55)",
+    bg: "rgba(217,161,58,0.12)",
+  },
+  danger: {
+    fg: "#f08b87",
+    border: "rgba(240,139,135,0.55)",
+    bg: "rgba(217,83,79,0.14)",
+  },
+  info: {
+    fg: "#7ec4ea",
+    border: "rgba(126,196,234,0.55)",
+    bg: "rgba(90,174,224,0.12)",
+  },
+  neutral: {
+    fg: "var(--text-dim)",
+    border: "var(--border)",
+    bg: "rgba(255,255,255,0.02)",
+  },
+}
+
+function verdictTone(verdict?: string): PillTone {
+  if (verdict === "strong_pursue" || verdict === "pursue") return PILL_TONES.success
+  if (verdict === "selective_pursue" || verdict === "maybe") return PILL_TONES.warning
+  if (verdict === "skip") return PILL_TONES.danger
+  return PILL_TONES.neutral
+}
+
+function roiTone(roi?: string): PillTone {
+  if (roi === "high_touch") return PILL_TONES.success
+  if (roi === "tailored_application") return PILL_TONES.warning
+  if (roi === "light_application") return PILL_TONES.info
+  if (roi === "skip") return PILL_TONES.danger
+  return PILL_TONES.neutral
+}
+
+function riskTone(risk?: string): PillTone {
+  if (risk === "low") return PILL_TONES.success
+  if (risk === "medium") return PILL_TONES.warning
+  if (risk === "high") return PILL_TONES.danger
+  return PILL_TONES.neutral
+}
+
+function verdictColor(verdict?: string): string {
+  return verdictTone(verdict).fg
 }
 
 function loadHistory(): HistoryEntry[] {
@@ -254,10 +298,10 @@ function ScoreBar({
 
 function Pill({
   children,
-  color,
+  tone,
 }: {
   children: ReactNode
-  color: string
+  tone: PillTone
 }) {
   return (
     <span
@@ -265,8 +309,9 @@ function Pill({
         fontFamily: "var(--mono)",
         fontSize: "11px",
         letterSpacing: "0.08em",
-        color,
-        border: `1px solid ${color}`,
+        color: tone.fg,
+        border: `1px solid ${tone.border}`,
+        background: tone.bg,
         padding: "4px 10px",
         borderRadius: "2px",
         textTransform: "uppercase",
@@ -604,46 +649,46 @@ export default function Home() {
                 flexWrap: "wrap",
               }}
             >
-              <Pill color={verdictColor(result.verdict)}>
+              <Pill tone={verdictTone(result.verdict)}>
                 {labelize(result.verdict)}
               </Pill>
 
-              <Pill color="var(--text-dim)">
+              <Pill tone={roiTone(result.application_roi_tier)}>
                 ROI: {labelize(result.application_roi_tier)}
               </Pill>
 
               {result.underleveling_risk && (
-                <Pill color={riskColor(result.underleveling_risk)}>
+                <Pill tone={riskTone(result.underleveling_risk)}>
                   Underleveling: {labelize(result.underleveling_risk)}
                 </Pill>
               )}
 
               {result.stretch_risk && (
-                <Pill color={riskColor(result.stretch_risk)}>
+                <Pill tone={riskTone(result.stretch_risk)}>
                   Stretch: {labelize(result.stretch_risk)}
                 </Pill>
               )}
 
               {result.credential_risk && (
-                <Pill color={riskColor(result.credential_risk)}>
+                <Pill tone={riskTone(result.credential_risk)}>
                   Credential: {labelize(result.credential_risk)}
                 </Pill>
               )}
 
               {result.domain_risk && (
-                <Pill color={riskColor(result.domain_risk)}>
+                <Pill tone={riskTone(result.domain_risk)}>
                   Domain: {labelize(result.domain_risk)}
                 </Pill>
               )}
 
               {result.authority_risk && (
-                <Pill color={riskColor(result.authority_risk)}>
+                <Pill tone={riskTone(result.authority_risk)}>
                   Authority: {labelize(result.authority_risk)}
                 </Pill>
               )}
 
               {result.tool_or_functional_gap_risk && (
-                <Pill color={riskColor(result.tool_or_functional_gap_risk)}>
+                <Pill tone={riskTone(result.tool_or_functional_gap_risk)}>
                   Tool/Functional Gap: {labelize(result.tool_or_functional_gap_risk)}
                 </Pill>
               )}

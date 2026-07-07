@@ -663,6 +663,14 @@ function scoreRole(s: Signals): ScoreResult {
   const hardFunctionalGapCount = Number(s.deepSalesforce) + Number(s.dealDesk) + Number(s.quoteToClose) + Number(s.commissions) + Number(s.incentiveComp) + Number(s.territoryRoster) + Number(s.oncologyLaunch) + Number(s.aiGovernance) + Number(s.productionAiMl)
   const hardRevOps = s.deepSalesforce || s.dealDesk || s.quoteToClose || s.commissions || s.revenueDefinitions
   const pharmaMechanics = Number(s.incentiveComp) + Number(s.territoryRoster) + Number(s.qbrs) + Number(s.fieldEnablement) + Number(s.oncologyLaunch)
+  const underlevelingBand =
+    hasRegex(s.text, /3\s*[-–]\s*5\+?\s*years|3 to 5\+?\s*years|3 to 5 years|3-5\+? years|3-5 years|3\u20135\+?\s*years/i) ||
+    hasRegex(s.text, /2\s*[-–]\s*5\+?\s*years|2 to 5\+?\s*years|2 to 5 years/i)
+  const surveyAnalyticsExecutionRole =
+    hasAny(s.text, ["survey", "qualtrics", "survey design", "survey platforms"]) &&
+    hasAny(s.text, ["reporting framework", "reporting frameworks", "dashboards", "analytical tools", "analytics and reporting", "structured outputs"]) &&
+    hasAny(s.text, ["consulting engagements", "training initiatives", "scalable resources", "project development"])
+  const lowAuthorityRoleShape = !s.executiveAccess && !s.formalAuthority && !s.leaderAccountability && !s.chiefOfStaff && !s.evpOperations
 
   if (s.biOnly || s.salesforceAdminOnly) {
     r.verdict = "maybe"
@@ -679,6 +687,44 @@ function scoreRole(s: Signals): ScoreResult {
     r.gaps_to_address = ["Confirm whether the role has strategic scope and leadership access."]
     r.reasoning = "The opportunity quality is limited if the role is primarily BI, reporting, or tool administration."
     r.application_strategy = "Do not over-invest unless a hiring manager confirms broader strategic operating scope."
+    return finalize(r, s)
+  }
+
+  if (surveyAnalyticsExecutionRole && underlevelingBand && lowAuthorityRoleShape) {
+    r.verdict = "maybe"
+    r.application_roi_tier = s.strategicOps || s.commercialStrategy ? "tailored_application" : "light_application"
+    r.role_fit_score = 71
+    r.opportunity_quality_score = 54
+    r.underleveling_risk = "high"
+    r.stretch_risk = "low"
+    r.credential_risk = "low"
+    r.domain_risk = s.healthcareTech || s.lifeSciences ? "medium" : "low"
+    r.authority_risk = "low"
+    r.tool_or_functional_gap_risk = "medium"
+    r.pursuit_summary = "Maybe. The role is doable and adjacent to Sam's analytics/systems strengths, but it appears more execution-oriented and likely underleveled versus his strategic-operations search target."
+    r.best_positioning_angle = "Position Sam as an analytics-to-operations builder who can produce clean reporting frameworks while improving decision quality and operating rhythm."
+    r.green_flags = [
+      "Strong overlap with analytics, structured problem-solving, and reusable reporting/tool development.",
+      "Healthcare or healthcare-adjacent context is relevant.",
+      "AI-enabled workflow language is directionally aligned when framed as practical operating leverage.",
+    ]
+    r.red_flags = [
+      "Role appears calibrated for 3-5 years and manager-level execution scope.",
+      "Primary scope is survey/reporting/tool development rather than leadership-facing strategic operations ownership.",
+      "Lower authority profile than Sam's target Chief of Staff-track / strategic operations roles.",
+    ]
+    r.bright_spots = [
+      "Built and owned commercial reporting and operating systems leadership relied on.",
+      "Strong proof in turning fragmented data into actionable operating visibility.",
+      "Can raise quality and consistency of reusable analytics outputs quickly.",
+    ]
+    r.gaps_to_address = [
+      "Clarify whether role has growth into broader strategic operations ownership.",
+      "Confirm mandate includes decision influence, not only reporting execution.",
+    ]
+    r.reasoning = "This is a credible execution fit but less strategic than Sam's target lane. Role fit is solid; opportunity quality is lower due to likely underleveling and narrower mandate."
+    r.application_strategy = "Use a light or tailored application only if there is clear upside in scope expansion, leadership exposure, or mission fit."
+    r.cover_letter_angle = "Lead with systems-building and decision-support outcomes, while staying explicit that Sam is strongest in strategic operating scope."
     return finalize(r, s)
   }
 
