@@ -30,6 +30,7 @@ interface ScoreResult {
   credential_risk?: "low" | "medium" | "high" | string
   domain_risk?: "low" | "medium" | "high" | string
   authority_risk?: "low" | "medium" | "high" | string
+  tool_or_functional_gap_risk?: "low" | "medium" | "high" | string
 
   pursuit_summary?: string
   best_positioning_angle?: string
@@ -638,6 +639,12 @@ export default function Home() {
               {result.authority_risk && (
                 <Pill color={riskColor(result.authority_risk)}>
                   Authority: {labelize(result.authority_risk)}
+                </Pill>
+              )}
+
+              {result.tool_or_functional_gap_risk && (
+                <Pill color={riskColor(result.tool_or_functional_gap_risk)}>
+                  Tool/Functional Gap: {labelize(result.tool_or_functional_gap_risk)}
                 </Pill>
               )}
             </div>

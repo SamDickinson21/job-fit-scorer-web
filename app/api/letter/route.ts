@@ -30,8 +30,8 @@ import {
 export const runtime = "nodejs"
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-const LETTER_MODEL = process.env.OPENROUTER_LETTER_MODEL || "openai/gpt-4.1-mini"
-const PLAN_MODEL = process.env.OPENROUTER_PLAN_MODEL || process.env.OPENROUTER_LETTER_MODEL || "openai/gpt-4.1-mini"
+const LETTER_MODEL = process.env.OPENROUTER_LETTER_MODEL || process.env.OPENROUTER_SCORE_MODEL || "openai/gpt-4.1"
+const PLAN_MODEL = process.env.OPENROUTER_PLAN_MODEL || process.env.OPENROUTER_LETTER_MODEL || process.env.OPENROUTER_SCORE_MODEL || "openai/gpt-4.1-mini"
 
 type LetterRequestBody = {
   title?: string
@@ -59,10 +59,7 @@ const HARD_BANNED_PHRASES = [
   "i am excited to apply",
   "dear hiring manager",
   "my skills and experience align perfectly",
-  "i believe i would be a great fit",
-  "throughout my career",
   "i bring a unique blend",
-  "i have successfully led",
   "across clinical, operations, finance, and growth",
   "led cross-functional initiatives across clinical",
 ]
@@ -77,21 +74,9 @@ const PLACEHOLDER_PATTERNS = [
 ]
 
 const SOFT_REPLACEMENTS: Array<[RegExp, string]> = [
-  [/\bactionable insights\b/gi, "clear recommendations"],
   [/\bclear, clear recommendations\b/gi, "clear recommendations"],
   [/\bbetter-clearer decisions\b/gi, "better, clearer decisions"],
   [/\bclear, clearer decisions\b/gi, "clearer decisions"],
-  [/\binformed decisions\b/gi, "clearer decisions"],
-  [/\bdata-driven decisions\b/gi, "clearer decisions"],
-  [/\bstrategic outcomes\b/gi, "operating decisions"],
-  [/\bdrive results\b/gi, "move the work forward"],
-  [/\benhance operational efficiency\b/gi, "make execution cleaner"],
-  [/\bcontribute effectively\b/gi, "be useful quickly"],
-  [/\btangible outcomes\b/gi, "real outcomes"],
-  [/\bmeasurable impact\b/gi, "useful results"],
-  [/\boperational lever\b/gi, "practical tool"],
-  [/\bmultiply impact\b/gi, "improve execution"],
-  [/\bleveraging AI\b/gi, "using AI"],
   [/\btrusted partner to the CEO\b/gi, "trusted operating partner to leadership"],
   [/\bcreate structure from chaos\b/gi, "create structure where the path is unclear"],
   [/\bI look forward to the possibility of discussing[^.]*\./gi, ""],
@@ -223,8 +208,8 @@ function assessLetter(text: string): { ok: boolean; reason?: string } {
   if (!/\n\s*Sam Dickinson\s*$/i.test(text)) return { ok: false, reason: "missing Sam Dickinson signature" }
 
   const wc = wordCount(text.replace(/\n\s*Sam Dickinson\s*$/i, ""))
-  if (wc < 240) return { ok: false, reason: `too short (${wc} words)` }
-  if (wc > 800) return { ok: false, reason: `too long (${wc} words)` }
+  if (wc < 150) return { ok: false, reason: `too short (${wc} words)` }
+  if (wc > 650) return { ok: false, reason: `too long (${wc} words)` }
 
   return { ok: true }
 }
@@ -274,6 +259,7 @@ function makeDefaultPlan(jdText: string, metadata: LetterMetadata, scoreResult: 
   else if (hasEnterpriseAiDeliverySignal(jdText, metadata)) supporting = "enterpriseAiDeliveryBridge"
   else if (hasRevOpsHardGapSignal(jdText, metadata)) supporting = "revOpsSalesforceDealDeskBridge"
   else if (hasAuthorityGapSignal(jdText, metadata) || String(scoreResult.authority_risk || "").toLowerCase() === "high") supporting = "authorityStretchBridge"
+  else if (String(scoreResult.underleveling_risk || "").toLowerCase() === "high") supporting = "underlevelingBiBridge"
   else if (hasGtmSignal(jdText) && !hasAiSignal(jdText)) supporting = "icpPipelineRedesign"
 
   if (hasMedicareOrPayerSignal(jdText, metadata)) {
@@ -357,6 +343,10 @@ function validatePlan(raw: unknown, jdText: string, metadata: LetterMetadata, sc
   if (hasAuthorityGapSignal(jdText, metadata) || String(scoreResult.authority_risk || "").toLowerCase() === "high") {
     plan.supporting_evidence_id = "authorityStretchBridge"
     plan.must_not_claim = Array.from(new Set([...(plan.must_not_claim || []), "formal EVP authority", "Deputy COO authority", "department-leader accountability authority"]))
+  }
+
+  if (String(scoreResult.underleveling_risk || "").toLowerCase() === "high") {
+    plan.supporting_evidence_id = "underlevelingBiBridge"
   }
 
   return plan

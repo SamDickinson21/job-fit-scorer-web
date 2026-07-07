@@ -11,6 +11,7 @@ export type EvidenceId =
   | "authorityStretchBridge"
   | "pharmaSalesOpsAnalyticsBridge"
   | "enterpriseAiDeliveryBridge"
+  | "underlevelingBiBridge"
 
 export type EvidenceItem = {
   id: EvidenceId
@@ -237,6 +238,23 @@ export const EVIDENCE: Record<EvidenceId, EvidenceItem> = {
     avoidClaims: [
       "Do not claim formal operating authority over department leaders.",
       "Do not claim Sam covered the COO seat.",
+    ],
+  },
+  underlevelingBiBridge: {
+    id: "underlevelingBiBridge",
+    label: "Underleveling / BI bridge",
+    usableClaim:
+      "Sam can execute analytics and reporting work, but his strongest value is leadership-facing operating systems and strategic operations scope.",
+    letterParagraph:
+      "I can execute analytics and reporting work, but my strongest value is in leadership-facing operating systems: connecting data, process, and execution so teams can make better operating decisions. If this role has room to expand from dashboard production into ownership of operating cadence, decision support, and cross-functional execution, that is where I can create outsized impact.",
+    supportingDetails: [
+      "Use when a role appears underleveled or heavily dashboard-centric.",
+      "Keeps the tone respectful while clarifying scope fit.",
+    ],
+    allowedAngles: ["bi_analytics", "underleveling_bridge", "strategic_operations"],
+    avoidClaims: [
+      "Do not dismiss the role or imply BI work is low value.",
+      "Do not claim formal authority or team management that is not supported.",
     ],
   },
 }

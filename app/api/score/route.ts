@@ -23,6 +23,8 @@ type ScoreResult = {
   credential_risk: Risk
   domain_risk: Risk
   authority_risk: Risk
+  tool_or_functional_gap_risk: Risk
+  role_family?: RoleFamily
   pursuit_summary: string
   best_positioning_angle: string
   green_flags: string[]
@@ -130,8 +132,13 @@ type ExtractedSignals = Partial<Omit<Signals, "text" | "compVisible" | "compMin"
   hard_gap_signals?: string[]
 }
 
+type SignalConfidence = "weak" | "medium" | "strong"
+type BooleanSignalKey = Exclude<{
+  [K in keyof Signals]: Signals[K] extends boolean ? K : never
+}[keyof Signals], undefined>
+
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-const SCORE_MODEL = process.env.OPENROUTER_SCORE_MODEL || process.env.OPENROUTER_PLAN_MODEL || process.env.OPENROUTER_LETTER_MODEL || "openai/gpt-4.1-mini"
+const SCORE_MODEL = process.env.OPENROUTER_SCORE_MODEL || process.env.OPENROUTER_PLAN_MODEL || process.env.OPENROUTER_LETTER_MODEL || "openai/gpt-4.1"
 
 function lowerText(jdText: string, metadata: Metadata): string {
   return `${metadata.title} ${metadata.company} ${metadata.role}\n${jdText}`.toLowerCase()
@@ -145,6 +152,14 @@ function hasRegex(text: string, pattern: RegExp): boolean {
   return pattern.test(text)
 }
 
+function countAny(text: string, terms: string[]): number {
+  let count = 0
+  for (const term of terms) {
+    if (text.includes(term)) count += 1
+  }
+  return count
+}
+
 function pushUnique(arr: string[], value: string) {
   if (!arr.some(item => item.toLowerCase() === value.toLowerCase())) arr.push(value)
 }
@@ -155,6 +170,28 @@ function firstNonEmpty<T>(...values: Array<T | undefined | null>): T | undefined
 
 function boolFrom(...values: unknown[]): boolean {
   return values.some(Boolean)
+}
+
+function parseOptionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined
+}
+
+function inferRoleFamilyFromSignals(s: Signals): RoleFamily {
+  const revOpsHardCount = Number(s.deepSalesforce) + Number(s.dealDesk) + Number(s.quoteToClose) + Number(s.commissions) + Number(s.revenueDefinitions)
+  const pharmaMechanicsCount = Number(s.incentiveComp) + Number(s.territoryRoster) + Number(s.qbrs) + Number(s.fieldEnablement) + Number(s.salesEnablement) + Number(s.oncologyLaunch)
+  const enterpriseAiCount = Number(s.enterpriseAi) + Number(s.productionAiMl) + Number(s.aiGovernance) + Number(s.technicalTeamManagement)
+
+  if (s.enterpriseAiDelivery && enterpriseAiCount >= 2) return "enterprise_ai_delivery"
+  if (s.pharmaSalesOpsAnalytics && pharmaMechanicsCount >= 2) return "pharma_sales_ops_analytics"
+  if (s.evpOperations || (s.formalAuthority && s.leaderAccountability)) return "evp_operations"
+  if (s.chiefOfStaff || s.ceoProxy) return "chief_of_staff"
+  if (s.revenueOperations || revOpsHardCount >= 2) return "revenue_operations"
+  if (s.commercialStrategy) return "commercial_strategy"
+  if (s.strategicOps) return "strategic_operations"
+  if (s.revIntelligence) return "revenue_intelligence"
+  if (s.biOnly || s.salesforceAdminOnly) return "bi_analytics"
+  if (s.ai || s.gtm || s.forecasting) return "technical_operations"
+  return "general"
 }
 
 function extractComp(jdText: string): { compVisible: boolean; compMin?: number; compMax?: number } {
@@ -194,33 +231,37 @@ function inferSeniority(text: string): Seniority {
 function deterministicAnalyze(jdText: string, metadata: Metadata): Signals {
   const text = lowerText(jdText, metadata)
   const comp = extractComp(jdText)
+  const revOpsCoreCount = countAny(text, ["revenue operations", "revops", "sales operations", "sales ops", "commercial operations", "commercial ops"])
+  const revOpsHardCount = countAny(text, ["salesforce architecture", "salesforce administration", "deal desk", "quote-to-close", "quote to close", "commission", "commissions", "quota setting", "territory planning", "incentive compensation", "arr", "carr"])
+  const pharmaDomainCount = countAny(text, ["biotechnology", "pharmaceutical", "biotech", "pharma", "oncology", "market access"])
+  const pharmaMechanicsCount = countAny(text, ["field enablement", "field teams", "field sales", "incentive compensation", "territory/roster", "roster management", "qbr", "qbrs", "oncology launch"])
+  const enterpriseAiCount = countAny(text, ["ai manager", "innovation and ai manager", "ai platforms", "machine learning", "data science", "advanced analytics", "genai", "llm"])
+  const aiGovernanceCount = countAny(text, ["ai governance", "responsible ai", "model risk", "security", "governance"])
+  const aiDeliveryCount = countAny(text, ["concept through production", "production", "technical quality", "mentor practitioners", "ai and analytics teams", "manage day-to-day execution of ai and analytics teams"])
+  const authorityCount = countAny(text, ["deputy coo", "operating deputy", "number-two operating seat", "number two operating seat", "real operating authority", "decision authority", "covering the coo", "step in for the coo", "hold leaders accountable", "hold department leaders accountable"])
+  const chiefOfStaffCount = countAny(text, ["chief of staff", "chief-of-staff"])
+  const strategicOpsCount = countAny(text, ["strategic operations", "business operations", "operating cadence", "operating rhythm", "operating systems", "decision cadence"])
+  const commercialStrategyCount = countAny(text, ["commercial strategy", "gtm strategy", "go-to-market", "market strategy", "pipeline strategy"])
+  const revIntelligenceCount = countAny(text, ["revenue intelligence", "pipeline analytics", "forecasting", "funnel analysis", "pipeline review"])
+  const executiveAccessCount = countAny(text, ["ceo", "coo", "cfo", "founder", "executive team", "leadership team", "board-level", "board level", "vp of finance", "vp finance"])
+  const payerCount = countAny(text, ["medicare advantage", "payer", "health insurance", "member health", "members healthier"])
+  const lifeSciencesCount = countAny(text, ["life sciences", "biopharma", "pharma", "new therapies", "clinical development", "medical device", "biotechnology", "diagnostics", "genomics"])
+  const crmCount = countAny(text, ["crm", "salesforce", "hubspot"])
 
-  const revenueOperations = hasAny(text, ["revenue operations", "revops", "sales operations", "sales ops", "deal desk", "quote-to-close", "quote to close", "arr", "carr"])
-  const pharmaSalesOpsAnalytics = revenueOperations && hasAny(text, ["biotechnology", "pharmaceutical", "biotech", "pharma", "oncology", "field teams", "field sales", "incentive compensation", "territory/roster", "roster management", "qbr", "qbrs", "omnichannel", "market access"])
-  const evpOperations = hasAny(text, ["evp of operations", "deputy coo", "operating deputy", "number-two operating seat", "number two operating seat", "coo's operating", "coo’s operating"])
-  const chiefOfStaff = hasAny(text, ["chief of staff", "chief-of-staff"])
-  const deepSalesforce = hasAny(text, ["own the salesforce", "salesforce instance", "salesforce architecture", "salesforce administration", "salesforce architect", "built or rebuilt", "deep salesforce", "salesforce admin"])
-  const enterpriseAiDelivery = hasAny(text, ["ai manager", "innovation and ai manager", "ai platforms", "ai governance", "responsible ai", "model risk", "machine learning", "data science", "advanced analytics", "production", "technical quality", "mentor practitioners", "ai literacy"])
-  const strategicOps = hasAny(text, ["strategic operations", "business operations", "operating cadence", "operating rhythm", "operating systems", "decision cadence"])
-  const commercialStrategy = hasAny(text, ["commercial strategy", "gtm strategy", "go-to-market", "market strategy", "pipeline strategy"])
-  const revIntelligence = hasAny(text, ["revenue intelligence", "pipeline analytics", "forecasting", "funnel analysis"])
-  const biOnly = hasAny(text, ["bi analyst", "business intelligence analyst", "dashboard developer", "report developer"]) && !hasAny(text, ["executive team", "ceo", "coo", "strategy", "operating system"])
-  const salesforceAdminOnly = hasAny(text, ["salesforce administrator", "salesforce admin"]) && !hasAny(text, ["strategy", "leadership", "executive"])
+  const revenueOperations = revOpsCoreCount >= 2 || (revOpsCoreCount >= 1 && revOpsHardCount >= 1)
+  const pharmaSalesOpsAnalytics = pharmaDomainCount >= 1 && pharmaMechanicsCount >= 2
+  const evpOperations = authorityCount >= 2 || hasAny(text, ["evp of operations", "deputy coo", "coo's operating", "coo’s operating"])
+  const chiefOfStaff = chiefOfStaffCount >= 1
+  const deepSalesforce = countAny(text, ["salesforce architecture", "salesforce administration", "salesforce architect", "salesforce admin", "salesforce administrator", "salesforce instance"]) >= 2
+  const enterpriseAiDelivery = (enterpriseAiCount >= 2 && (aiGovernanceCount >= 1 || aiDeliveryCount >= 1)) || (aiGovernanceCount >= 1 && aiDeliveryCount >= 1)
+  const strategicOps = strategicOpsCount >= 1
+  const commercialStrategy = commercialStrategyCount >= 1
+  const revIntelligence = revIntelligenceCount >= 1
+  const biOnly = hasAny(text, ["bi analyst", "business intelligence analyst", "dashboard developer", "report developer"]) && !hasAny(text, ["executive team", "ceo", "coo", "strategy", "operating system", "chief of staff"])
+  const salesforceAdminOnly = hasAny(text, ["salesforce administrator", "salesforce admin"]) && !hasAny(text, ["strategy", "leadership", "executive", "operating"])
 
-  let role_family: RoleFamily = "general"
-  if (enterpriseAiDelivery) role_family = "enterprise_ai_delivery"
-  else if (evpOperations) role_family = "evp_operations"
-  else if (chiefOfStaff) role_family = "chief_of_staff"
-  else if (pharmaSalesOpsAnalytics) role_family = "pharma_sales_ops_analytics"
-  else if (revenueOperations) role_family = "revenue_operations"
-  else if (commercialStrategy) role_family = "commercial_strategy"
-  else if (revIntelligence) role_family = "revenue_intelligence"
-  else if (strategicOps) role_family = "strategic_operations"
-  else if (biOnly) role_family = "bi_analytics"
-  else if (hasAny(text, ["automation", " ai ", "systems", "analytics", "business intelligence"])) role_family = "technical_operations"
-
-  return {
-    role_family,
+  const draftSignals: Signals = {
+    role_family: "general",
     seniority: inferSeniority(text),
     role_center: "",
     must_have_requirements: [],
@@ -237,47 +278,51 @@ function deterministicAnalyze(jdText: string, metadata: Metadata): Signals {
     revIntelligence,
     biOnly,
     salesforceAdminOnly,
-    operatingSystems: hasAny(text, ["operating system", "operating systems", "operating cadence", "operating rhythm", "decision cadence", "accountability mechanism", "systems, workflows", "data infrastructure", "source of truth", "operational frameworks", "governance models"]),
-    executiveAccess: hasAny(text, ["ceo", "coo", "cfo", "founder", "executive team", "vp of finance", "vp finance", "senior director", "leadership team", "board-level", "board level"]),
-    ceoProxy: hasAny(text, ["trusted proxy", "strategic proxy", "represent her", "represent him", "make decisions on her behalf", "make decisions on his behalf", "decision-making on behalf", "ceo proxy"]),
-    formalAuthority: evpOperations || hasAny(text, ["real operating authority", "make real decisions", "consequential decisions", "decision authority", "own real outcomes", "covering the coo", "step in for the coo"]),
-    leaderAccountability: hasAny(text, ["hold leaders accountable", "hold department leaders accountable", "drive execution through leaders", "senior leaders accountable", "productive friction"]),
-    boardMaterials: hasAny(text, ["board materials", "board-level metrics", "board level metrics", "board", "investor"]),
-    ai: hasAny(` ${text} `, [" ai ", "ai-first", "ai-enabled", "ai-powered", "artificial intelligence", "automation", "workflow automation", "claude", "chatgpt", "genai", "llm"]),
-    enterpriseAi: enterpriseAiDelivery,
-    productionAiMl: hasAny(text, ["production", "end-to-end implementation", "concept through production", "model", "machine learning", "data science", "technical quality", "ai platforms"]),
-    aiGovernance: hasAny(text, ["governance", "responsible ai", "model risk", "security", "standards"]),
+    operatingSystems: strategicOpsCount >= 2 || hasAny(text, ["accountability mechanism", "systems, workflows", "data infrastructure", "source of truth", "operational frameworks"]),
+    executiveAccess: executiveAccessCount >= 2,
+    ceoProxy: hasAny(text, ["trusted proxy", "strategic proxy", "represent her", "represent him", "represent the ceo", "acting on behalf of the ceo", "make decisions on her behalf", "make decisions on his behalf", "decision-making on behalf", "ceo proxy"]),
+    formalAuthority: evpOperations || authorityCount >= 2,
+    leaderAccountability: hasAny(text, ["hold leaders accountable", "hold department leaders accountable", "drive execution through leaders", "senior leaders accountable"]),
+    boardMaterials: hasAny(text, ["board materials", "board-level metrics", "board level metrics", "investor materials"]),
+    ai: hasAny(` ${text} `, [" ai ", "ai-first", "ai-enabled", "ai-powered", "artificial intelligence", "automation", "workflow automation", "genai", "llm"]),
+    enterpriseAi: enterpriseAiCount >= 2,
+    productionAiMl: aiDeliveryCount >= 1 && countAny(text, ["machine learning", "data science", "advanced analytics", "model", "production"]) >= 2,
+    aiGovernance: aiGovernanceCount >= 1,
     technicalTeamManagement: hasAny(text, ["manage day-to-day execution of ai and analytics teams", "mentoring practitioners", "technical teams", "assigning work", "overseeing technical quality"]),
-    gtm: hasAny(text, ["gtm", "go-to-market", "sales", "marketing", "pipeline", "funnel", "commercial", "revenue", "field teams"]),
+    gtm: hasAny(text, ["gtm", "go-to-market", "pipeline", "funnel", "commercial"]) && countAny(text, ["sales", "marketing", "revenue", "pipeline"]) >= 2,
     forecasting: hasAny(text, ["forecast", "forecasting", "pipeline review", "funnel analysis", "performance dashboards"]),
     hubspot: hasAny(text, ["hubspot"]),
     netSuite: hasAny(text, ["netsuite"]),
     deepSalesforce,
-    crm: hasAny(text, ["crm", "salesforce", "hubspot"]),
-    dealDesk: hasAny(text, ["deal desk", "structuring", "pricing", "proposal review", "deal review", "deals"]),
+    crm: crmCount >= 1,
+    dealDesk: hasAny(text, ["deal desk", "proposal review", "deal review"]) || hasAny(text, ["pricing", "structuring"]) && hasAny(text, ["deals", "quote-to-close"]),
     quoteToClose: hasAny(text, ["quote-to-close", "quote to close", "closed-won", "billing", "invoice review"]),
     commissions: hasAny(text, ["commission", "commissions", "comp plan", "quota setting", "territory planning", "incentive compensation"]),
     incentiveComp: hasAny(text, ["incentive compensation", "ic plan", "ic plans", "compensation plans", "fair incentive"]),
     territoryRoster: hasAny(text, ["territory", "roster", "territory/roster", "territory management", "roster management", "account/business planning", "business planning"]),
     qbrs: hasAny(text, ["qbr", "qbrs", "quarterly business review"]),
-    fieldEnablement: hasAny(text, ["field enablement", "field teams", "field sales", "home office", "customer engagement", "onboarding", "training"]),
-    salesEnablement: hasAny(text, ["sales enablement", "training", "documentation", "rep adoption", "field enablement"]),
+    fieldEnablement: hasAny(text, ["field enablement", "field teams", "field sales", "home office", "customer engagement"]),
+    salesEnablement: hasAny(text, ["sales enablement", "onboarding", "training", "documentation", "rep adoption", "field enablement"]),
     revenueDefinitions: hasAny(text, ["arr", "carr", "opportunity stages", "pipeline categories", "revenue definitions", "deal terms"]),
     saasRevOps: revenueOperations && hasAny(text, ["b2b saas", "saas", "series a", "series b", "series c"]),
     earlyStageSaas: hasAny(text, ["series a", "series b", "series c", "first dedicated", "first revops", "first revenue operations", "early-stage", "early stage"]),
-    lifeSciences: hasAny(text, ["life sciences", "biopharma", "pharma", "new therapies", "r&d", "clinical development", "medical device", "biotechnology", "diagnostics", "genomics"]),
+    lifeSciences: lifeSciencesCount >= 1,
     clinicalDevelopment: hasAny(text, ["clinical development", "clinical trial", "clinical trials", "clinical operations", "late-stage clinical"]),
     healthcareTech: hasAny(text, ["healthcare", "health tech", "health technology", "rpm", "ccm", "bhi", "remote patient monitoring", "chronic care management", "behavioral health"]),
     biotechPharma: hasAny(text, ["biotech", "biotechnology", "pharma", "pharmaceutical", "oncology company", "therapies"]),
-    oncologyLaunch: hasAny(text, ["oncology launch", "oral oncolytics", "nsclc", "gi", "oncology", "ras-addicted cancers", "ras(on)"]),
-    payer: hasAny(text, ["payer", "health insurance", "member health", "members healthier"]),
+    oncologyLaunch: hasAny(text, ["oncology launch", "oral oncolytics", "nsclc", "gi", "ras-addicted cancers", "ras(on)"]),
+    payer: payerCount >= 1,
     medicare: hasAny(text, ["medicare advantage"]),
     tenPlus: hasRegex(text, /10\+|10 years|ten\+|ten years/),
-    eightPlusSpecific: hasRegex(text, /8\+|8 years|8 or more years|eight\+|eight years|eight or more years/) && hasAny(text, ["sales operations", "commercial analytics", "biotechnology", "pharmaceutical", "ai", "data science", "advanced analytics"]),
+    eightPlusSpecific: hasRegex(text, /8\+|8 years|8 or more years|eight\+|eight years|eight or more years/) && (countAny(text, ["sales operations", "commercial analytics", "biotechnology", "pharmaceutical", "ai", "data science", "advanced analytics"]) >= 2),
     sevenPlusRevOps: revenueOperations && hasRegex(text, /7\+|7 or more years|seven\+|seven or more years/),
     directorOrAboveRequired: hasAny(text, ["associate director", "director", "senior director", "vp operations", "evp", "deputy coo", "chief of staff"]),
     ...comp,
   }
+
+  draftSignals.role_family = inferRoleFamilyFromSignals(draftSignals)
+
+  return draftSignals
 }
 
 function normalizeExtracted(raw: unknown): ExtractedSignals | null {
@@ -290,55 +335,55 @@ function normalizeExtracted(raw: unknown): ExtractedSignals | null {
     must_have_requirements: cleanArray(obj.must_have_requirements),
     strong_match_signals: cleanArray(obj.strong_match_signals),
     hard_gap_signals: cleanArray(obj.hard_gap_signals),
-    chiefOfStaff: Boolean(obj.chiefOfStaff),
-    evpOperations: Boolean(obj.evpOperations),
-    revenueOperations: Boolean(obj.revenueOperations),
-    pharmaSalesOpsAnalytics: Boolean(obj.pharmaSalesOpsAnalytics),
-    enterpriseAiDelivery: Boolean(obj.enterpriseAiDelivery),
-    strategicOps: Boolean(obj.strategicOps),
-    commercialStrategy: Boolean(obj.commercialStrategy),
-    revIntelligence: Boolean(obj.revIntelligence),
-    biOnly: Boolean(obj.biOnly),
-    salesforceAdminOnly: Boolean(obj.salesforceAdminOnly),
-    operatingSystems: Boolean(obj.operatingSystems),
-    executiveAccess: Boolean(obj.executiveAccess),
-    ceoProxy: Boolean(obj.ceoProxy),
-    formalAuthority: Boolean(obj.formalAuthority),
-    leaderAccountability: Boolean(obj.leaderAccountability),
-    boardMaterials: Boolean(obj.boardMaterials),
-    ai: Boolean(obj.ai),
-    enterpriseAi: Boolean(obj.enterpriseAi),
-    productionAiMl: Boolean(obj.productionAiMl),
-    aiGovernance: Boolean(obj.aiGovernance),
-    technicalTeamManagement: Boolean(obj.technicalTeamManagement),
-    gtm: Boolean(obj.gtm),
-    forecasting: Boolean(obj.forecasting),
-    hubspot: Boolean(obj.hubspot),
-    netSuite: Boolean(obj.netSuite),
-    deepSalesforce: Boolean(obj.deepSalesforce),
-    crm: Boolean(obj.crm),
-    dealDesk: Boolean(obj.dealDesk),
-    quoteToClose: Boolean(obj.quoteToClose),
-    commissions: Boolean(obj.commissions),
-    incentiveComp: Boolean(obj.incentiveComp),
-    territoryRoster: Boolean(obj.territoryRoster),
-    qbrs: Boolean(obj.qbrs),
-    fieldEnablement: Boolean(obj.fieldEnablement),
-    salesEnablement: Boolean(obj.salesEnablement),
-    revenueDefinitions: Boolean(obj.revenueDefinitions),
-    saasRevOps: Boolean(obj.saasRevOps),
-    earlyStageSaas: Boolean(obj.earlyStageSaas),
-    lifeSciences: Boolean(obj.lifeSciences),
-    clinicalDevelopment: Boolean(obj.clinicalDevelopment),
-    healthcareTech: Boolean(obj.healthcareTech),
-    biotechPharma: Boolean(obj.biotechPharma),
-    oncologyLaunch: Boolean(obj.oncologyLaunch),
-    payer: Boolean(obj.payer),
-    medicare: Boolean(obj.medicare),
-    tenPlus: Boolean(obj.tenPlus),
-    eightPlusSpecific: Boolean(obj.eightPlusSpecific),
-    sevenPlusRevOps: Boolean(obj.sevenPlusRevOps),
-    directorOrAboveRequired: Boolean(obj.directorOrAboveRequired),
+    chiefOfStaff: parseOptionalBoolean(obj.chiefOfStaff),
+    evpOperations: parseOptionalBoolean(obj.evpOperations),
+    revenueOperations: parseOptionalBoolean(obj.revenueOperations),
+    pharmaSalesOpsAnalytics: parseOptionalBoolean(obj.pharmaSalesOpsAnalytics),
+    enterpriseAiDelivery: parseOptionalBoolean(obj.enterpriseAiDelivery),
+    strategicOps: parseOptionalBoolean(obj.strategicOps),
+    commercialStrategy: parseOptionalBoolean(obj.commercialStrategy),
+    revIntelligence: parseOptionalBoolean(obj.revIntelligence),
+    biOnly: parseOptionalBoolean(obj.biOnly),
+    salesforceAdminOnly: parseOptionalBoolean(obj.salesforceAdminOnly),
+    operatingSystems: parseOptionalBoolean(obj.operatingSystems),
+    executiveAccess: parseOptionalBoolean(obj.executiveAccess),
+    ceoProxy: parseOptionalBoolean(obj.ceoProxy),
+    formalAuthority: parseOptionalBoolean(obj.formalAuthority),
+    leaderAccountability: parseOptionalBoolean(obj.leaderAccountability),
+    boardMaterials: parseOptionalBoolean(obj.boardMaterials),
+    ai: parseOptionalBoolean(obj.ai),
+    enterpriseAi: parseOptionalBoolean(obj.enterpriseAi),
+    productionAiMl: parseOptionalBoolean(obj.productionAiMl),
+    aiGovernance: parseOptionalBoolean(obj.aiGovernance),
+    technicalTeamManagement: parseOptionalBoolean(obj.technicalTeamManagement),
+    gtm: parseOptionalBoolean(obj.gtm),
+    forecasting: parseOptionalBoolean(obj.forecasting),
+    hubspot: parseOptionalBoolean(obj.hubspot),
+    netSuite: parseOptionalBoolean(obj.netSuite),
+    deepSalesforce: parseOptionalBoolean(obj.deepSalesforce),
+    crm: parseOptionalBoolean(obj.crm),
+    dealDesk: parseOptionalBoolean(obj.dealDesk),
+    quoteToClose: parseOptionalBoolean(obj.quoteToClose),
+    commissions: parseOptionalBoolean(obj.commissions),
+    incentiveComp: parseOptionalBoolean(obj.incentiveComp),
+    territoryRoster: parseOptionalBoolean(obj.territoryRoster),
+    qbrs: parseOptionalBoolean(obj.qbrs),
+    fieldEnablement: parseOptionalBoolean(obj.fieldEnablement),
+    salesEnablement: parseOptionalBoolean(obj.salesEnablement),
+    revenueDefinitions: parseOptionalBoolean(obj.revenueDefinitions),
+    saasRevOps: parseOptionalBoolean(obj.saasRevOps),
+    earlyStageSaas: parseOptionalBoolean(obj.earlyStageSaas),
+    lifeSciences: parseOptionalBoolean(obj.lifeSciences),
+    clinicalDevelopment: parseOptionalBoolean(obj.clinicalDevelopment),
+    healthcareTech: parseOptionalBoolean(obj.healthcareTech),
+    biotechPharma: parseOptionalBoolean(obj.biotechPharma),
+    oncologyLaunch: parseOptionalBoolean(obj.oncologyLaunch),
+    payer: parseOptionalBoolean(obj.payer),
+    medicare: parseOptionalBoolean(obj.medicare),
+    tenPlus: parseOptionalBoolean(obj.tenPlus),
+    eightPlusSpecific: parseOptionalBoolean(obj.eightPlusSpecific),
+    sevenPlusRevOps: parseOptionalBoolean(obj.sevenPlusRevOps),
+    directorOrAboveRequired: parseOptionalBoolean(obj.directorOrAboveRequired),
   }
 }
 
@@ -355,20 +400,90 @@ function mergeSignals(fallback: Signals, extracted: ExtractedSignals | null): Si
     hard_gap_signals: cleanArray(extracted.hard_gap_signals).length ? cleanArray(extracted.hard_gap_signals) : fallback.hard_gap_signals,
   }
 
-  const booleanKeys: Array<keyof Signals> = [
+  const booleanKeys: Array<BooleanSignalKey> = [
     "chiefOfStaff", "evpOperations", "revenueOperations", "pharmaSalesOpsAnalytics", "enterpriseAiDelivery", "strategicOps", "commercialStrategy", "revIntelligence", "biOnly", "salesforceAdminOnly", "operatingSystems", "executiveAccess", "ceoProxy", "formalAuthority", "leaderAccountability", "boardMaterials", "ai", "enterpriseAi", "productionAiMl", "aiGovernance", "technicalTeamManagement", "gtm", "forecasting", "hubspot", "netSuite", "deepSalesforce", "crm", "dealDesk", "quoteToClose", "commissions", "incentiveComp", "territoryRoster", "qbrs", "fieldEnablement", "salesEnablement", "revenueDefinitions", "saasRevOps", "earlyStageSaas", "lifeSciences", "clinicalDevelopment", "healthcareTech", "biotechPharma", "oncologyLaunch", "payer", "medicare", "tenPlus", "eightPlusSpecific", "sevenPlusRevOps", "directorOrAboveRequired"
   ]
 
-  for (const key of booleanKeys) {
-    ;(merged as Record<string, unknown>)[key] = boolFrom((fallback as Record<string, unknown>)[key], (extracted as Record<string, unknown>)[key])
+  const confidence: Record<BooleanSignalKey, SignalConfidence> = {
+    chiefOfStaff: "strong",
+    evpOperations: "strong",
+    revenueOperations: "medium",
+    pharmaSalesOpsAnalytics: "strong",
+    enterpriseAiDelivery: "strong",
+    strategicOps: "medium",
+    commercialStrategy: "medium",
+    revIntelligence: "medium",
+    biOnly: "strong",
+    salesforceAdminOnly: "strong",
+    operatingSystems: "medium",
+    executiveAccess: "medium",
+    ceoProxy: "strong",
+    formalAuthority: "strong",
+    leaderAccountability: "strong",
+    boardMaterials: "medium",
+    ai: "weak",
+    enterpriseAi: "medium",
+    productionAiMl: "strong",
+    aiGovernance: "strong",
+    technicalTeamManagement: "strong",
+    gtm: "weak",
+    forecasting: "weak",
+    hubspot: "strong",
+    netSuite: "strong",
+    deepSalesforce: "strong",
+    crm: "weak",
+    dealDesk: "strong",
+    quoteToClose: "strong",
+    commissions: "strong",
+    incentiveComp: "strong",
+    territoryRoster: "strong",
+    qbrs: "strong",
+    fieldEnablement: "medium",
+    salesEnablement: "medium",
+    revenueDefinitions: "medium",
+    saasRevOps: "medium",
+    earlyStageSaas: "weak",
+    lifeSciences: "medium",
+    clinicalDevelopment: "medium",
+    healthcareTech: "weak",
+    biotechPharma: "medium",
+    oncologyLaunch: "strong",
+    payer: "strong",
+    medicare: "strong",
+    tenPlus: "strong",
+    eightPlusSpecific: "strong",
+    sevenPlusRevOps: "strong",
+    directorOrAboveRequired: "medium",
+    compVisible: "strong",
   }
 
-  // Force important family corrections after merge.
-  if (merged.enterpriseAiDelivery) merged.role_family = "enterprise_ai_delivery"
-  else if (merged.pharmaSalesOpsAnalytics) merged.role_family = "pharma_sales_ops_analytics"
-  else if (merged.evpOperations || merged.formalAuthority || merged.leaderAccountability) merged.role_family = "evp_operations"
-  else if (merged.chiefOfStaff || merged.ceoProxy) merged.role_family = "chief_of_staff"
-  else if (merged.revenueOperations) merged.role_family = "revenue_operations"
+  for (const key of booleanKeys) {
+    const deterministicValue = Boolean((fallback as Record<string, unknown>)[key])
+    const extractedValue = (extracted as Record<string, unknown>)[key]
+    if (typeof extractedValue !== "boolean") {
+      ;(merged as Record<string, unknown>)[key] = deterministicValue
+      continue
+    }
+
+    if (extractedValue === deterministicValue) {
+      ;(merged as Record<string, unknown>)[key] = extractedValue
+      continue
+    }
+
+    // Confidence-weighted reconciliation:
+    // - extracted false can clear weak/medium deterministic false positives
+    // - strong deterministic hits are sticky
+    const c = confidence[key]
+    if (deterministicValue && !extractedValue) {
+      ;(merged as Record<string, unknown>)[key] = c === "strong"
+      continue
+    }
+
+    // extracted true can introduce additional signals when deterministic missed them.
+    ;(merged as Record<string, unknown>)[key] = true
+  }
+
+  merged.role_family = inferRoleFamilyFromSignals(merged)
 
   return merged
 }
@@ -447,6 +562,8 @@ Important classification rules:
 - If the role is sales operations/commercial analytics within biotech/pharma and includes field enablement, incentive compensation, territory/roster, CRM, QBRs, pharma launch, market access, or oncology launch, classify as pharma_sales_ops_analytics, not generic revenue_operations.
 - If the role asks for AI/data science/advanced analytics, production AI, ML, governance, model risk, responsible AI, or managing AI/analytics teams, classify as enterprise_ai_delivery.
 - If Salesforce/deal desk/commissions/quote-to-close are core, set those flags even if the title is broader.
+- Only set boolean flags true when the JD includes explicit evidence; if uncertain, leave false.
+- Do not over-classify from single generic keywords like "operations", "commercial", "AI", or "analytics" without supporting specifics.
 - Do not infer Sam has those requirements; extract only the JD's requirements.
 
 JOB METADATA:
@@ -495,6 +612,7 @@ function buildBaseResult(): ScoreResult {
     credential_risk: "medium",
     domain_risk: "low",
     authority_risk: "low",
+    tool_or_functional_gap_risk: "low",
     pursuit_summary: "Review carefully. The role may be worth pursuing if it offers leadership-facing operating scope and a credible bridge from Sam's commercial systems background.",
     best_positioning_angle: "Position Sam as a strategic operator who builds commercial operating systems, decision infrastructure, and executive clarity for leadership teams.",
     green_flags: [],
@@ -530,6 +648,7 @@ function finalize(result: ScoreResult, s: Signals): ScoreResult {
   result.hard_pass_triggers_fired = []
   result.role_fit_score = Math.max(0, Math.min(100, Math.round(result.role_fit_score)))
   result.opportunity_quality_score = Math.max(0, Math.min(100, Math.round(result.opportunity_quality_score)))
+  result.role_family = s.role_family
   if (s.strong_match_signals.length) {
     for (const item of s.strong_match_signals.slice(0, 4)) pushUnique(result.green_flags, item)
   }
@@ -541,6 +660,9 @@ function finalize(result: ScoreResult, s: Signals): ScoreResult {
 
 function scoreRole(s: Signals): ScoreResult {
   const r = buildBaseResult()
+  const hardFunctionalGapCount = Number(s.deepSalesforce) + Number(s.dealDesk) + Number(s.quoteToClose) + Number(s.commissions) + Number(s.incentiveComp) + Number(s.territoryRoster) + Number(s.oncologyLaunch) + Number(s.aiGovernance) + Number(s.productionAiMl)
+  const hardRevOps = s.deepSalesforce || s.dealDesk || s.quoteToClose || s.commissions || s.revenueDefinitions
+  const pharmaMechanics = Number(s.incentiveComp) + Number(s.territoryRoster) + Number(s.qbrs) + Number(s.fieldEnablement) + Number(s.oncologyLaunch)
 
   if (s.biOnly || s.salesforceAdminOnly) {
     r.verdict = "maybe"
@@ -549,7 +671,8 @@ function scoreRole(s: Signals): ScoreResult {
     r.opportunity_quality_score = 50
     r.underleveling_risk = "high"
     r.stretch_risk = "low"
-    r.credential_risk = s.salesforceAdminOnly ? "high" : "low"
+    r.credential_risk = s.salesforceAdminOnly ? "high" : "medium"
+    r.tool_or_functional_gap_risk = "medium"
     r.pursuit_summary = "Light application at most. The role appears too narrow or tool-admin focused to use Sam's strategic operations and executive decision-support strengths."
     r.best_positioning_angle = "Only pursue if the role has broader operating-system ownership and leadership access than the JD suggests."
     r.red_flags = ["Role appears narrow, execution-only, or tool-admin focused."]
@@ -562,13 +685,14 @@ function scoreRole(s: Signals): ScoreResult {
   if (s.role_family === "enterprise_ai_delivery" || s.enterpriseAiDelivery || s.enterpriseAi || s.productionAiMl || s.aiGovernance || s.technicalTeamManagement) {
     r.verdict = "maybe"
     r.application_roi_tier = "light_application"
-    r.role_fit_score = 52
+    r.role_fit_score = 54
     r.opportunity_quality_score = s.compMax && s.compMax <= 175000 ? 60 : 64
     r.underleveling_risk = "medium"
     r.stretch_risk = "high"
     r.credential_risk = "high"
     r.domain_risk = s.lifeSciences ? "low" : "medium"
     r.authority_risk = s.technicalTeamManagement ? "medium" : "low"
+    r.tool_or_functional_gap_risk = "high"
     r.pursuit_summary = "Maybe / light application. The life sciences context and business-process language are attractive, but the center of gravity is enterprise AI delivery, AI governance, production analytics, and technical team leadership rather than Sam's strongest strategic-operations and commercial-systems lane."
     r.best_positioning_angle = "Only position Sam as an operational AI adoption builder who turns AI into practical business workflows. Do not position him as an AI/data science manager, ML leader, or enterprise AI governance owner."
     r.green_flags = [
@@ -603,22 +727,23 @@ function scoreRole(s: Signals): ScoreResult {
   }
 
   if (s.role_family === "pharma_sales_ops_analytics" || s.pharmaSalesOpsAnalytics) {
-    let fit = 66
-    if (s.incentiveComp) fit -= 4
-    if (s.territoryRoster) fit -= 4
-    if (s.oncologyLaunch) fit -= 4
-    if (s.eightPlusSpecific) fit -= 3
-    if (s.fieldEnablement) fit -= 2
+    let fit = 74
+    if (s.incentiveComp) fit -= 2
+    if (s.territoryRoster) fit -= 2
+    if (s.oncologyLaunch) fit -= 2
+    if (s.eightPlusSpecific) fit -= 2
+    if (s.fieldEnablement) fit -= 1
 
     r.verdict = "selective_pursue"
     r.application_roi_tier = "tailored_application"
-    r.role_fit_score = Math.max(56, fit)
-    r.opportunity_quality_score = s.compMax && s.compMax >= 180000 ? 78 : 72
+    r.role_fit_score = Math.max(60, fit)
+    r.opportunity_quality_score = s.compMax && s.compMax >= 180000 ? 80 : 76
     r.underleveling_risk = "medium"
     r.stretch_risk = "medium"
     r.credential_risk = "high"
     r.domain_risk = s.oncologyLaunch ? "medium" : "medium"
     r.authority_risk = "low"
+    r.tool_or_functional_gap_risk = s.incentiveComp && s.territoryRoster && s.oncologyLaunch && s.tenPlus ? "high" : "medium"
     r.pursuit_summary = "Selective pursue / tailored application. The role has real adjacency to Sam's commercial systems, forecasting, pipeline visibility, field enablement, and life sciences background, but it is calibrated for a pharma/biotech sales operations and analytics operator with direct experience in CRM, incentive compensation, territory/roster management, field enablement, and possibly oncology launch."
     r.best_positioning_angle = "Position Sam as a life-sciences commercial systems and revenue intelligence operator who can connect field activity, CRM data, forecasting, and leadership visibility. Be honest that pharma field sales ops mechanics such as incentive compensation, territory/roster management, and oncology launch are the ramp."
     r.green_flags = [
@@ -662,12 +787,13 @@ function scoreRole(s: Signals): ScoreResult {
     r.verdict = "selective_pursue"
     r.application_roi_tier = "high_touch"
     r.role_fit_score = 66
-    r.opportunity_quality_score = s.compMax && s.compMax >= 190000 ? 90 : 86
+    r.opportunity_quality_score = s.compMax && s.compMax >= 190000 ? 92 : 88
     r.underleveling_risk = "low"
     r.stretch_risk = "high"
     r.credential_risk = "high"
     r.domain_risk = s.healthcareTech ? "medium" : "low"
     r.authority_risk = "high"
+    r.tool_or_functional_gap_risk = hardFunctionalGapCount >= 3 ? "high" : "medium"
     r.pursuit_summary = "High-quality but significant stretch. The role is strongly aligned with Sam's operating systems, executive decision support, AI workflow, and healthcare-adjacent experience, but it appears calibrated for a proven Director/Senior Director, Deputy COO, VP, or EVP operator with formal authority over leaders and company-wide execution."
     r.best_positioning_angle = "Position Sam as a strategic operations builder who has created executive-facing operating systems, decision infrastructure, and AI-enabled workflows, while being honest that formal EVP/Deputy COO-level authority is the stretch."
     r.green_flags = ["Role emphasizes operating systems, structure, execution cadence, and AI-enabled leverage.", "Healthcare or life sciences context is adjacent to Sam's background."]
@@ -684,13 +810,14 @@ function scoreRole(s: Signals): ScoreResult {
   if (s.chiefOfStaff || s.ceoProxy) {
     r.verdict = "pursue"
     r.application_roi_tier = "high_touch"
-    r.role_fit_score = s.ceoProxy || s.medicare || s.tenPlus ? 78 : 84
-    r.opportunity_quality_score = s.compMax && s.compMax >= 180000 ? 88 : 84
+    r.role_fit_score = s.ceoProxy || s.medicare || s.tenPlus ? 80 : 84
+    r.opportunity_quality_score = s.compMax && s.compMax >= 180000 ? 90 : 86
     r.underleveling_risk = "low"
     r.stretch_risk = s.ceoProxy || s.tenPlus ? "high" : "medium"
     r.credential_risk = s.tenPlus ? "medium" : "low"
     r.domain_risk = s.medicare || s.payer ? "medium" : "low"
-    r.authority_risk = s.ceoProxy ? "high" : "medium"
+    r.authority_risk = s.ceoProxy || s.formalAuthority || s.leaderAccountability ? "high" : "medium"
+    r.tool_or_functional_gap_risk = hardFunctionalGapCount >= 3 ? "high" : "low"
     r.pursuit_summary = s.ceoProxy || s.medicare || s.tenPlus
       ? "High-touch pursue. This is a credible stretch: the role is strongly aligned with Sam's operating style, but CEO-proxy expectations, seniority screening, or domain depth create real risk."
       : "Strong leadership-facing strategic operations fit. The role aligns with Sam's operating systems, executive decision support, and ambiguity-to-structure experience."
@@ -714,16 +841,16 @@ function scoreRole(s: Signals): ScoreResult {
   }
 
   if (s.revenueOperations) {
-    const hardRevOps = s.deepSalesforce || s.dealDesk || s.quoteToClose || s.commissions || s.revenueDefinitions
     r.verdict = hardRevOps ? "selective_pursue" : "pursue"
     r.application_roi_tier = hardRevOps ? "tailored_application" : "high_touch"
     r.role_fit_score = hardRevOps ? 58 : 72
-    r.opportunity_quality_score = s.earlyStageSaas || (s.compMax !== undefined && s.compMax >= 180000) ? 72 : 68
+    r.opportunity_quality_score = s.earlyStageSaas || (s.compMax !== undefined && s.compMax >= 180000) ? 74 : 70
     r.underleveling_risk = hardRevOps ? "medium" : "low"
     r.stretch_risk = "medium"
     r.credential_risk = hardRevOps ? "high" : "medium"
     r.domain_risk = s.lifeSciences || s.clinicalDevelopment ? "low" : s.saasRevOps ? "medium" : "low"
     r.authority_risk = "low"
+    r.tool_or_functional_gap_risk = hardRevOps ? "high" : "medium"
     r.pursuit_summary = hardRevOps
       ? "Adjacent but not core-fit. The context may align with Sam's commercial systems work, but the role is heavily centered on Salesforce architecture, deal desk, quote-to-close, or SaaS RevOps mechanics that Sam has not directly owned."
       : "Pursue selectively. The role aligns with Sam's commercial systems, pipeline visibility, and executive reporting work, with some risk if the company expects a traditional RevOps operator."
@@ -753,13 +880,14 @@ function scoreRole(s: Signals): ScoreResult {
   if (s.strategicOps || s.commercialStrategy || s.revIntelligence || s.operatingSystems) {
     r.verdict = s.executiveAccess ? "strong_pursue" : "pursue"
     r.application_roi_tier = s.executiveAccess ? "high_touch" : "tailored_application"
-    r.role_fit_score = s.executiveAccess ? 86 : 80
+    r.role_fit_score = s.executiveAccess ? 84 : 78
     r.opportunity_quality_score = s.executiveAccess ? 86 : 78
     r.underleveling_risk = "low"
     r.stretch_risk = "medium"
     r.credential_risk = "low"
     r.domain_risk = "low"
     r.authority_risk = "low"
+    r.tool_or_functional_gap_risk = hardFunctionalGapCount >= 3 ? "high" : "low"
     r.pursuit_summary = "Strong strategic operations fit if the role has real ownership and leadership access. The role aligns with Sam's operating systems, commercial strategy, executive reporting, and ambiguity-to-structure strengths."
     r.best_positioning_angle = "Position Sam as a strategic operator who turns messy commercial signals and disconnected systems into operating clarity leadership can act on."
     r.green_flags = ["Role emphasizes systems, ambiguity, operating cadence, strategy, or commercial execution.", ...(s.executiveAccess ? ["Leadership access appears meaningful."] : []), ...(s.ai ? ["AI or automation is valued as an operating lever."] : [])]
@@ -770,6 +898,7 @@ function scoreRole(s: Signals): ScoreResult {
     return finalize(r, s)
   }
 
+  r.tool_or_functional_gap_risk = hardFunctionalGapCount >= 3 ? "high" : hardFunctionalGapCount >= 1 ? "medium" : "low"
   return finalize(r, s)
 }
 

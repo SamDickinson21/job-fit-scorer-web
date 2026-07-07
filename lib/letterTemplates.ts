@@ -25,6 +25,7 @@ export type RoleFamily =
   | "commercial_strategy"
   | "strategic_operations"
   | "revenue_intelligence"
+  | "bi_analytics"
   | "technical_operations"
   | "general"
 
@@ -90,6 +91,7 @@ export function inferRoleFamily(jdText: string, metadata: LetterMetadata): RoleF
   if (hasAny(h, ["chief of staff", "chief-of-staff"])) return "chief_of_staff"
   if (hasAny(h, ["commercial strategy", "gtm strategy", "go-to-market", "pipeline strategy", "market strategy"])) return "commercial_strategy"
   if (hasAny(h, ["revenue intelligence", "forecasting", "pipeline analytics"])) return "revenue_intelligence"
+  if (hasAny(h, ["bi analyst", "business intelligence analyst", "dashboard developer", "report developer"])) return "bi_analytics"
   if (hasAny(h, ["strategic operations", "business operations", "operating rhythm", "operating systems", "decision cadence"])) return "strategic_operations"
   if (hasAny(h, ["automation", " ai ", "systems", "analytics", "business intelligence"])) return "technical_operations"
   return "general"
@@ -126,6 +128,10 @@ function openingFor(jdText: string, metadata: LetterMetadata, family: RoleFamily
 
   if (family === "enterprise_ai_delivery") {
     return `${company}'s ${role} role is centered on turning AI strategy into governed, adopted, production-ready business workflows.`
+  }
+
+  if (family === "bi_analytics") {
+    return `${company}'s ${role} role appears to sit at the point where reporting quality and operating decision quality need to line up in a practical way.`
   }
 
   if (family === "revenue_operations" && hasAny(h, ["salesforce", "deal desk", "quote-to-close", "commissions"])) {
@@ -184,33 +190,50 @@ function whyItMattersParagraph(family: RoleFamily): string {
     return "That kind of system matters because revenue intelligence is only useful when it changes how leaders see the business. The goal is to make forecast movement, pipeline quality, and execution risk visible early enough for the team to act."
   }
 
+  if (family === "bi_analytics") {
+    return "That kind of work matters because dashboards alone rarely change outcomes. What matters is whether the reporting creates trusted visibility, cleaner handoffs, and better operating decisions."
+  }
+
   return "That kind of system matters because operating work breaks down when leaders have data but not clarity. The goal is to make the right information visible, clarify the tradeoffs, and help the business move with more focus."
 }
 
+function scoreRoleFamily(scoreResult: Record<string, unknown>, inferred: RoleFamily): RoleFamily {
+  const fromScore = String(scoreResult.role_family || "").toLowerCase() as RoleFamily
+  const allowed: RoleFamily[] = [
+    "chief_of_staff",
+    "evp_operations",
+    "revenue_operations",
+    "pharma_sales_ops_analytics",
+    "enterprise_ai_delivery",
+    "commercial_strategy",
+    "strategic_operations",
+    "revenue_intelligence",
+    "bi_analytics",
+    "technical_operations",
+    "general",
+  ]
+  return allowed.includes(fromScore) ? fromScore : inferred
+}
+
+function selectBridgeEvidenceId(jdText: string, scoreResult: Record<string, unknown>, metadata: LetterMetadata, family: RoleFamily): EvidenceId | null {
+  const underleveling = String(scoreResult.underleveling_risk || "").toLowerCase()
+  const authority = String(scoreResult.authority_risk || "").toLowerCase()
+  const domain = String(scoreResult.domain_risk || "").toLowerCase()
+
+  // Explicit bridge precedence avoids cross-role bleed (e.g., Medicare text on RevOps roles).
+  if (hasPayerSignal(jdText, metadata)) return "healthcarePayerBridge"
+  if (family === "evp_operations" || authority === "high") return "authorityStretchBridge"
+  if (family === "enterprise_ai_delivery") return "enterpriseAiDeliveryBridge"
+  if (family === "pharma_sales_ops_analytics") return "pharmaSalesOpsAnalyticsBridge"
+  if (family === "revenue_operations" && hasRevOpsHardGapSignal(jdText, metadata)) return "revOpsSalesforceDealDeskBridge"
+  if (family === "bi_analytics" || underleveling === "high") return "underlevelingBiBridge"
+  if (hasLifeSciencesSignal(jdText, metadata) && domain !== "low") return "lifeSciencesClinicalDevelopmentBridge"
+  return null
+}
+
 function bridgeParagraph(jdText: string, scoreResult: Record<string, unknown>, metadata: LetterMetadata, family: RoleFamily): string | null {
-  if (family === "pharma_sales_ops_analytics") {
-    return EVIDENCE.pharmaSalesOpsAnalyticsBridge.letterParagraph
-  }
-
-  if (family === "enterprise_ai_delivery") {
-    return EVIDENCE.enterpriseAiDeliveryBridge.letterParagraph
-  }
-
-  if (family === "revenue_operations" && hasRevOpsHardGapSignal(jdText, metadata)) {
-    return EVIDENCE.revOpsSalesforceDealDeskBridge.letterParagraph
-  }
-
-  if (family === "evp_operations" || String(scoreResult.authority_risk || "").toLowerCase() === "high") {
-    return EVIDENCE.authorityStretchBridge.letterParagraph
-  }
-
-  if (hasPayerSignal(jdText, metadata)) {
-    return EVIDENCE.healthcarePayerBridge.letterParagraph
-  }
-
-  if (hasLifeSciencesSignal(jdText, metadata) && String(scoreResult.domain_risk || "").toLowerCase() !== "low") {
-    return EVIDENCE.lifeSciencesClinicalDevelopmentBridge.letterParagraph
-  }
+  const bridgeId = selectBridgeEvidenceId(jdText, scoreResult, metadata, family)
+  if (bridgeId) return EVIDENCE[bridgeId].letterParagraph
 
   if (family === "chief_of_staff" || String(scoreResult.stretch_risk || "").toLowerCase() === "high") {
     return "My path is not the traditional consulting-to-Chief-of-Staff path, but it has been deeply operating-focused. I am most useful where leaders need someone who can understand the business, build the system, and turn ambiguity into practical direction."
@@ -237,7 +260,7 @@ export function buildControlledCoverLetterDraft(args: {
   plan: LetterPlan
 }): string {
   const { jdText, metadata, scoreResult, plan } = args
-  const family = inferRoleFamily(jdText, metadata)
+  const family = scoreRoleFamily(scoreResult, inferRoleFamily(jdText, metadata))
   const company = companyName(metadata)
   const primaryId = plan.primary_evidence_id || "commercialOperatingSystem"
   const supportingId = chooseSupportingEvidence(plan, jdText, family, metadata)
@@ -266,8 +289,23 @@ export function buildControlledCoverLetterDraft(args: {
   const bridge = bridgeParagraph(jdText, scoreResult, metadata, family)
   if (bridge) paragraphs.push(bridge)
 
-  const closeTarget = family === "revenue_operations" || family === "pharma_sales_ops_analytics" ? "Sales, Marketing, Finance, and leadership" : family === "enterprise_ai_delivery" ? "business and technology teams" : "leadership"
-  paragraphs.push(`What I would bring to ${company} is a practical operating style: build the system, clarify the tradeoffs, surface what matters, and help ${closeTarget} act from the same truth.`)
+  const closeTarget = family === "revenue_operations" || family === "pharma_sales_ops_analytics"
+    ? "Sales, Marketing, Finance, and leadership"
+    : family === "enterprise_ai_delivery"
+    ? "business and technology teams"
+    : "leadership"
+
+  if (family === "chief_of_staff" || family === "evp_operations") {
+    paragraphs.push(`What I would bring to ${company} is operating leverage for leadership: clearer priorities, tighter execution cadence, and cleaner visibility into where decisions need to happen.`)
+  } else if (family === "revenue_operations" || family === "pharma_sales_ops_analytics") {
+    paragraphs.push(`What I would bring to ${company} is a practical operating style: align definitions, tighten handoffs, and help ${closeTarget} run from the same source of truth.`)
+  } else if (family === "enterprise_ai_delivery") {
+    paragraphs.push(`What I would bring to ${company} is practical AI adoption discipline: clear use cases, workflow-level execution, and measurable business value without overcomplicating the system.`)
+  } else if (family === "bi_analytics") {
+    paragraphs.push(`What I would bring to ${company} is reporting that drives action: not just cleaner dashboards, but clearer operating decisions and accountability.`)
+  } else {
+    paragraphs.push(`What I would bring to ${company} is a practical operating style: build the system, clarify the tradeoffs, surface what matters, and help ${closeTarget} act from the same truth.`)
+  }
 
   return `${paragraphs.join("\n\n")}\n\nSam Dickinson`
 }
@@ -282,13 +320,8 @@ export function selectedEvidenceIdsForPlan(plan: LetterPlan, jdText: string, met
     ids.push("executiveDecisionSupport")
   }
 
-  const bridge = bridgeParagraph(jdText, {}, metadata, family)
-  if (bridge === EVIDENCE.healthcarePayerBridge.letterParagraph) ids.push("healthcarePayerBridge")
-  if (bridge === EVIDENCE.lifeSciencesClinicalDevelopmentBridge.letterParagraph) ids.push("lifeSciencesClinicalDevelopmentBridge")
-  if (bridge === EVIDENCE.revOpsSalesforceDealDeskBridge.letterParagraph) ids.push("revOpsSalesforceDealDeskBridge")
-  if (bridge === EVIDENCE.pharmaSalesOpsAnalyticsBridge.letterParagraph) ids.push("pharmaSalesOpsAnalyticsBridge")
-  if (bridge === EVIDENCE.enterpriseAiDeliveryBridge.letterParagraph) ids.push("enterpriseAiDeliveryBridge")
-  if (bridge === EVIDENCE.authorityStretchBridge.letterParagraph) ids.push("authorityStretchBridge")
+  const bridgeId = selectBridgeEvidenceId(jdText, {}, metadata, family)
+  if (bridgeId) ids.push(bridgeId)
 
   return ids
 }
