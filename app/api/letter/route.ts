@@ -48,6 +48,9 @@ const HARD_BANNED_PHRASES = [
   "i have successfully led",
   "across clinical, operations, finance, and growth",
   "led cross-functional initiatives across clinical",
+  "i thrive in environments",
+  "i look forward to",
+  "presents a unique opportunity",
 ]
 
 const PLACEHOLDER_PATTERNS = [
@@ -61,16 +64,32 @@ const PLACEHOLDER_PATTERNS = [
 
 const SOFT_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bactionable insights\b/gi, "clear recommendations"],
+  [/\bclear, clear recommendations\b/gi, "clear recommendations"],
+  [/\bbetter-clearer decisions\b/gi, "better, clearer decisions"],
+  [/\bclear, clearer decisions\b/gi, "clearer decisions"],
   [/\binformed decisions\b/gi, "clearer decisions"],
   [/\bdata-driven decisions\b/gi, "clearer decisions"],
+  [/\bdata-driven systems\b/gi, "operating systems"],
   [/\bstrategic outcomes\b/gi, "operating decisions"],
   [/\bdrive results\b/gi, "move the work forward"],
   [/\benhance operational efficiency\b/gi, "make execution cleaner"],
   [/\bcontribute effectively\b/gi, "be useful quickly"],
   [/\btangible outcomes\b/gi, "real outcomes"],
+  [/\bmeasurable impact\b/gi, "useful results"],
+  [/\boperational lever\b/gi, "practical tool"],
+  [/\boperational leverage\b/gi, "operating leverage"],
+  [/\bmultiply impact\b/gi, "improve execution"],
+  [/\bleveraging AI\b/gi, "using AI"],
+  [/\btrusted partner to the CEO\b/gi, "trusted operating partner to leadership"],
+  [/\bas a trusted partner to the CEO\b/gi, "as a trusted operating partner to leadership"],
+  [/\bsupport the CEO and the broader organization\b/gi, "support leadership and the broader organization"],
   [/\bcreate structure from chaos\b/gi, "create structure where the path is unclear"],
   [/\bturn ambiguity into execution\b/gi, "turn ambiguity into clearer priorities and action"],
   [/\bI look forward to the possibility of discussing[^.]*\./gi, ""],
+  [/\bI look forward to the opportunity[^.]*\./gi, ""],
+  [/\bI thrive in ambiguity[^.]*\./gi, ""],
+  [/\bI thrive in environments[^.]*\./gi, ""],
+  [/\bI am eager to apply[^.]*\./gi, ""],
 ]
 
 function normalizePlainText(text: string): string {
@@ -89,6 +108,12 @@ function normalizePlainText(text: string): string {
     cleaned = cleaned.replace(pattern, replacement)
   }
 
+  cleaned = cleaned
+    .replace(/better-clearer/gi, "better, clearer")
+    .replace(/clear, clear/gi, "clear")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]+\n/g, "\n")
+
   return cleaned.trim()
 }
 
@@ -106,10 +131,24 @@ function wordCount(text: string): number {
 
 function finalizeLetter(text: string): string {
   let cleaned = normalizePlainText(text)
+
+  // Remove common cover-letter wrapping the model sometimes adds.
   cleaned = cleaned.replace(/^Dear [^\n]+\n+/i, "")
-  cleaned = cleaned.replace(/^Sam\s*\n+/i, "")
+  cleaned = cleaned.replace(/^Sam(?: Dickinson)?\s*\n+/i, "")
+  cleaned = cleaned.replace(/\bBest regards,?\s*$/i, "")
+  cleaned = cleaned.replace(/\bSincerely,?\s*$/i, "")
+
+  // Remove generic closing sentences that make the letter sound templated.
+  cleaned = cleaned.replace(/\bI look forward to the opportunity[^.]*\./gi, "")
+  cleaned = cleaned.replace(/\bI look forward to the possibility[^.]*\./gi, "")
+  cleaned = cleaned.replace(/\bI thrive in ambiguity[^.]*\./gi, "")
+  cleaned = cleaned.replace(/\bI thrive in environments[^.]*\./gi, "")
+
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim()
-  cleaned = cleaned.replace(/(\n\s*Sam\s*)+$/i, "").trim()
+
+  // Collapse any model-generated duplicate signatures, including "Sam Dickinson" followed by "Sam".
+  cleaned = cleaned.replace(/(?:\n\s*(?:Best regards,?|Sincerely,?)\s*)?(?:\n\s*(?:Sam Dickinson|Sam)\s*)+$/i, "").trim()
+
   return `${cleaned}\n\nSam`
 }
 
@@ -380,11 +419,10 @@ That system mattered because it gave leadership a better way to see the business
 
 ${company}'s emphasis on using AI to improve execution also stood out to me. At Akadeum, I built AI-assisted workflows for lead routing and sales dossier generation that reduced average speed-to-first-touch from nearly 48 hours to under 20 hours. I see AI as a practical way to help teams move faster, reduce manual drag, and keep attention on the work that matters.
 
-I have not worked directly in Medicare Advantage, but I have spent much of my career in healthcare, life sciences, and complex technical markets, including Akadeum, DePuy Synthes, Stryker, and Spectrum Health. I am comfortable learning high-context environments quickly, especially when the work depends on systems thinking, clear communication, and disciplined execution.
+I have not worked directly in Medicare Advantage, but I have spent much of my career in healthcare, life sciences, and complex technical markets, including Akadeum, DePuy Synthes / Johnson & Johnson, Stryker, and Spectrum Health. I am comfortable learning high-context environments quickly, especially when the work depends on systems thinking, clear communication, and disciplined execution.
 
 What I would bring to ${company} is a practical operating style: build the system, clarify the tradeoffs, surface what matters, and help leadership act.`)
   }
-
   return finalizeLetter(`What stands out to me about this role is the need for someone who can bring structure to ambiguity and help leadership move from scattered signals to clearer priorities. That is the kind of work I am looking for next.
 
 At Akadeum Life Sciences, I built and owned the commercial operating system behind forecasting, pipeline management, executive reporting, board preparation, and go-to-market execution. I connected NetSuite, HubSpot, Power BI, R, and automation workflows into a source of truth leadership could rely on. The work was not just technical. I partnered closely with the CEO, COO, CFO, and commercial leadership to turn fragmented data and ambiguous market signals into clearer operating decisions.

@@ -129,6 +129,7 @@ Absolute output rules:
 - Sign with Sam at the bottom.
 - No placeholders of any kind.
 - Use plain ASCII punctuation only.
+- Do not use duplicate signatures. End with exactly one line: Sam.
 - Never use em dashes or en dashes.
 - Target 350 to 525 words.
 - Use 5 to 7 short paragraphs.
@@ -156,6 +157,11 @@ Hard-banned phrases and claims:
 - I have successfully led
 - across clinical, operations, finance, and growth
 - led cross-functional initiatives across clinical
+- I thrive in environments
+- I look forward to
+- presents a unique opportunity
+- operational lever
+- multiply impact
 
 Accuracy rules:
 - Never say Sam was, acted as, operated as, or served as a CEO proxy, trusted proxy, or strategic proxy.
@@ -168,6 +174,12 @@ Accuracy rules:
 - Do not over-position Sam as an AI specialist. AI is a tool he uses to improve operations, not his identity.
 - Do not mention the 8 vs 10 year gap directly. Bridge with operating scope and executive-facing work.
 - Do not mention RIFs unless the approved evidence explicitly requires it and it clearly strengthens the letter. Usually leave it out.
+
+Final polish rules:
+- Do not use generic closing sentences like "I look forward to the opportunity" or "I thrive in ambiguity."
+- Do not use awkward phrases like "better-clearer decisions" or repeated words like "clear, clear recommendations."
+- Do not end with a broad mission statement. End with Sam's operating style.
+- Do not call AI an "operational lever". Call it a practical way to reduce manual drag, improve focus, or help teams move faster.
 
 Evidence lock:
 - Every first-person claim must be supported by an approved evidence snippet.
