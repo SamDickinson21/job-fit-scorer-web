@@ -29,6 +29,7 @@ interface ScoreResult {
   stretch_risk?: "low" | "medium" | "high" | string
   credential_risk?: "low" | "medium" | "high" | string
   domain_risk?: "low" | "medium" | "high" | string
+  authority_risk?: "low" | "medium" | "high" | string
 
   pursuit_summary?: string
   best_positioning_angle?: string
@@ -631,6 +632,12 @@ export default function Home() {
               {result.domain_risk && (
                 <Pill color={riskColor(result.domain_risk)}>
                   Domain: {labelize(result.domain_risk)}
+                </Pill>
+              )}
+
+              {result.authority_risk && (
+                <Pill color={riskColor(result.authority_risk)}>
+                  Authority: {labelize(result.authority_risk)}
                 </Pill>
               )}
             </div>

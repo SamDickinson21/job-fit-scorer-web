@@ -5,7 +5,10 @@ export type EvidenceId =
   | "icpPipelineRedesign"
   | "rifRetentionPromotion"
   | "jjForecastingBackorders"
-  | "healthcareLifeSciencesBridge"
+  | "healthcarePayerBridge"
+  | "lifeSciencesClinicalDevelopmentBridge"
+  | "revOpsSalesforceDealDeskBridge"
+  | "authorityStretchBridge"
 
 export type EvidenceItem = {
   id: EvidenceId
@@ -30,11 +33,12 @@ export const EVIDENCE: Record<EvidenceId, EvidenceItem> = {
       "Supported forecasting, pipeline strategy, executive reporting, and commercial operating cadence.",
       "Helped leadership see pipeline quality, forecast movement, customer behavior, and commercial execution more clearly.",
     ],
-    allowedAngles: ["chief_of_staff", "strategic_operations", "commercial_strategy", "gtm_strategy", "revenue_intelligence"],
+    allowedAngles: ["chief_of_staff", "strategic_operations", "commercial_strategy", "gtm_strategy", "revenue_intelligence", "revenue_operations"],
     avoidClaims: [
       "Do not say Sam owned CEO-level decision rights.",
       "Do not say Sam led clinical operations, payer operations, or Medicare Advantage operations.",
       "Do not say Sam presented to the board.",
+      "Do not say Sam owned Salesforce architecture.",
     ],
   },
   executiveDecisionSupport: {
@@ -49,7 +53,7 @@ export const EVIDENCE: Record<EvidenceId, EvidenceItem> = {
       "Translated fragmented commercial data and ambiguous market signals into clearer operating decisions.",
       "Worked as a trusted operating partner to leadership without claiming formal CEO-proxy authority.",
     ],
-    allowedAngles: ["chief_of_staff", "strategic_operations", "executive_operations", "commercial_strategy"],
+    allowedAngles: ["chief_of_staff", "strategic_operations", "executive_operations", "commercial_strategy", "revenue_operations"],
     avoidClaims: [
       "Do not say Sam attended board meetings.",
       "Do not say Sam led board meetings or investor meetings.",
@@ -68,7 +72,7 @@ export const EVIDENCE: Record<EvidenceId, EvidenceItem> = {
       "Reduced manual drag and made commercial teams faster and more focused.",
       "Useful proof for roles that value AI-enabled execution, workflow design, or operating leverage.",
     ],
-    allowedAngles: ["ai_operations", "strategic_operations", "gtm_strategy", "chief_of_staff", "commercial_operations"],
+    allowedAngles: ["ai_operations", "strategic_operations", "gtm_strategy", "chief_of_staff", "commercial_operations", "revenue_operations"],
     avoidClaims: [
       "Do not over-position Sam as an AI engineer.",
       "Do not claim Sam built enterprise-grade AI infrastructure.",
@@ -86,7 +90,7 @@ export const EVIDENCE: Record<EvidenceId, EvidenceItem> = {
       "Shows ability to turn messy market signals into a sharper operating model for sales and marketing.",
       "Should not be used as proof of formal sales management.",
     ],
-    allowedAngles: ["commercial_strategy", "gtm_strategy", "revenue_intelligence", "strategic_operations"],
+    allowedAngles: ["commercial_strategy", "gtm_strategy", "revenue_intelligence", "strategic_operations", "revenue_operations"],
     avoidClaims: [
       "Do not say Sam formally managed salespeople.",
       "Do not imply Sam owned the full sales organization.",
@@ -122,26 +126,76 @@ export const EVIDENCE: Record<EvidenceId, EvidenceItem> = {
       "Secondary proof point, not usually the main cover-letter spine.",
     ],
     allowedAngles: ["healthcare_operations", "analytics", "forecasting", "strategic_operations"],
-    avoidClaims: [
-      "Do not overstate this as executive-level ownership.",
-    ],
+    avoidClaims: ["Do not overstate this as executive-level ownership."],
   },
-  healthcareLifeSciencesBridge: {
-    id: "healthcareLifeSciencesBridge",
-    label: "Healthcare and life sciences bridge",
+  healthcarePayerBridge: {
+    id: "healthcarePayerBridge",
+    label: "Healthcare payer bridge",
     usableClaim:
-      "Sam has worked across healthcare, life sciences, and complex technical markets, including Akadeum, DePuy Synthes / Johnson & Johnson, Stryker, and Spectrum Health.",
+      "Sam has healthcare and life sciences exposure, but not direct Medicare Advantage or payer operations experience.",
     letterParagraph:
-      "I have not worked directly in Medicare Advantage, but I have worked across healthcare, life sciences, and complex technical markets, including Akadeum, DePuy Synthes / Johnson & Johnson, Stryker, and Spectrum Health. I am comfortable learning high-context environments quickly, especially when the work depends on systems thinking, clear communication, and disciplined execution.",
+      "I have not worked directly in Medicare Advantage or payer operations, but I have worked across healthcare, life sciences, and complex technical markets, including Akadeum, DePuy Synthes / Johnson & Johnson, Stryker, and Spectrum Health. I am comfortable learning high-context environments quickly, especially when the work depends on systems thinking, clear communication, and disciplined execution.",
     supportingDetails: [
-      "Useful to bridge into healthcare-adjacent or regulated markets.",
-      "For Medicare Advantage, be honest: Sam has healthcare and life sciences exposure, not direct payer or Medicare Advantage experience.",
+      "Use only when the role is explicitly Medicare Advantage, payer, health insurance, or member-health oriented.",
+      "This is not appropriate for life sciences SaaS or clinical development finance infrastructure unless payer/insurance is explicit.",
     ],
-    allowedAngles: ["healthcare", "life_sciences", "regulated_markets", "domain_bridge"],
+    allowedAngles: ["healthcare", "payer", "regulated_markets", "domain_bridge"],
     avoidClaims: [
       "Do not claim direct Medicare Advantage experience.",
       "Do not claim payer operations experience.",
       "Do not claim clinical operations leadership.",
+    ],
+  },
+  lifeSciencesClinicalDevelopmentBridge: {
+    id: "lifeSciencesClinicalDevelopmentBridge",
+    label: "Life sciences / clinical development bridge",
+    usableClaim:
+      "Sam has worked in life sciences and healthcare-adjacent environments, including Akadeum, DePuy Synthes / Johnson & Johnson, Stryker, and Spectrum Health.",
+    letterParagraph:
+      "Condor's life sciences focus is close to the markets I have worked in, even though I have not owned clinical development finance infrastructure directly. My experience is strongest where commercial systems, technical markets, and leadership reporting need to come together into a clearer operating model.",
+    supportingDetails: [
+      "Use for life sciences, biopharma, clinical development, medical device, pharma, or healthcare technology roles.",
+      "Do not use Medicare Advantage language unless payer/insurance is explicit.",
+    ],
+    allowedAngles: ["life_sciences", "clinical_development", "healthcare_technology", "domain_bridge"],
+    avoidClaims: [
+      "Do not claim direct clinical trial finance ownership.",
+      "Do not claim payer operations experience.",
+    ],
+  },
+  revOpsSalesforceDealDeskBridge: {
+    id: "revOpsSalesforceDealDeskBridge",
+    label: "RevOps / Salesforce / deal desk bridge",
+    usableClaim:
+      "Sam has built commercial systems and revenue visibility, but has not owned Salesforce architecture or a formal deal desk end to end.",
+    letterParagraph:
+      "I have not owned Salesforce architecture or a formal deal desk end to end, so I would not position myself as a traditional Salesforce-first RevOps admin. My strength is building the commercial systems, reporting infrastructure, and operating cadences that connect field activity to leadership visibility. For a first RevOps hire, that distinction matters: the work has to make Sales, Marketing, and Finance operate from the same truth, not just produce cleaner reports.",
+    supportingDetails: [
+      "Use when Salesforce architecture, deal desk, quote-to-close, commissions, or SaaS RevOps are central requirements.",
+      "This bridge should be honest and may make the letter more selective rather than aggressive.",
+    ],
+    allowedAngles: ["revenue_operations", "revops", "sales_operations", "commercial_systems"],
+    avoidClaims: [
+      "Do not claim Salesforce architecture ownership.",
+      "Do not claim direct deal desk ownership.",
+      "Do not claim commission validation ownership.",
+    ],
+  },
+  authorityStretchBridge: {
+    id: "authorityStretchBridge",
+    label: "Formal authority stretch bridge",
+    usableClaim:
+      "Sam has operated as a trusted executive-facing operator, but has not held a formal EVP, Deputy COO, or company-wide operating authority seat.",
+    letterParagraph:
+      "I have not held a formal EVP or Deputy COO title, so I would be direct that this is a step up in formal authority. The bridge is the work itself: building operating systems leadership relied on, preparing decision-ready materials, and creating the visibility and cadence that made accountability easier across the commercial organization.",
+    supportingDetails: [
+      "Use when the JD requires formal operating authority, leader accountability, Deputy COO, EVP, VP Operations, or company-wide operations ownership.",
+      "Do not use for normal strategic operations roles where it would over-emphasize a gap.",
+    ],
+    allowedAngles: ["evp_operations", "deputy_coo", "authority_bridge", "strategic_operations"],
+    avoidClaims: [
+      "Do not claim formal operating authority over department leaders.",
+      "Do not claim Sam covered the COO seat.",
     ],
   },
 }

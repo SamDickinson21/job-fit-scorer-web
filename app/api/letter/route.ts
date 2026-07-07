@@ -18,6 +18,8 @@ import {
   hasAiSignal,
   hasGtmSignal,
   hasMedicareOrPayerSignal,
+  hasRevOpsHardGapSignal,
+  hasAuthorityGapSignal,
   selectedEvidenceIdsForPlan,
   type LetterMetadata,
   type LetterPlan,
@@ -147,7 +149,7 @@ function finalizeLetter(text: string): string {
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim()
   cleaned = cleaned.replace(/(?:\n\s*(?:Best regards,?|Sincerely,?)\s*)?(?:\n\s*(?:Sam Dickinson|Sam)\s*)+$/i, "").trim()
 
-  return `${cleaned}\n\nSam`
+  return `${cleaned}\n\nSam Dickinson`
 }
 
 function findHardBannedPhrase(text: string): string | null {
@@ -158,6 +160,20 @@ function findHardBannedPhrase(text: string): string | null {
 function findPlaceholder(text: string): string | null {
   const match = PLACEHOLDER_PATTERNS.find(pattern => pattern.test(text))
   return match ? match.toString() : null
+}
+
+function hasUnsupportedSalesforceClaim(text: string): boolean {
+  const lower = text.toLowerCase()
+  if (!lower.includes("salesforce")) return false
+  const allowed = [
+    "not owned salesforce",
+    "not owned salesforce architecture",
+    "not position myself as a traditional salesforce-first",
+    "not a salesforce-first",
+    "do not position myself as a traditional salesforce-first",
+  ]
+  if (allowed.some(phrase => lower.includes(phrase))) return false
+  return /\b(owned|own|built|rebuilt|architected|administered|managed)\b[^.\n]*\bsalesforce\b|\bsalesforce\b[^.\n]*\b(architect|admin|administrator|architecture)\b/i.test(text)
 }
 
 function findUnsupportedClaim(text: string): string | null {
@@ -171,10 +187,14 @@ function findUnsupportedClaim(text: string): string | null {
     [/\bpresented .*board/i, "board presentation claim"],
     [/\bmanaged account executives/i, "formal sales management claim"],
     [/\bmanaged sales/i, "formal sales management claim"],
-    [/\bsalesforce\b/i, "possible unsupported Salesforce claim"],
+    [/\bowned .*deal desk/i, "claims formal deal desk ownership"],
+    [/\bled .*deal desk/i, "claims formal deal desk ownership"],
+    [/\bowned .*commission/i, "claims commission ownership"],
+    [/\bowned .*quote-to-close/i, "claims quote-to-close ownership"],
     [/\baws\b/i, "possible unsupported AWS claim"],
   ]
 
+  if (hasUnsupportedSalesforceClaim(text)) return "possible unsupported Salesforce architecture/admin claim"
   const match = unsupportedPatterns.find(([pattern]) => pattern.test(text))
   return match ? match[1] : null
 }
@@ -190,11 +210,11 @@ function assessLetter(text: string): { ok: boolean; reason?: string } {
   if (unsupported) return { ok: false, reason: unsupported }
 
   if (/^\s*Dear\b/i.test(text)) return { ok: false, reason: "uses salutation" }
-  if (!/\n\s*Sam\s*$/i.test(text)) return { ok: false, reason: "missing Sam signature" }
+  if (!/\n\s*Sam Dickinson\s*$/i.test(text)) return { ok: false, reason: "missing Sam Dickinson signature" }
 
-  const wc = wordCount(text.replace(/\n\s*Sam\s*$/i, ""))
-  if (wc < 275) return { ok: false, reason: `too short (${wc} words)` }
-  if (wc > 750) return { ok: false, reason: `too long (${wc} words)` }
+  const wc = wordCount(text.replace(/\n\s*Sam Dickinson\s*$/i, ""))
+  if (wc < 240) return { ok: false, reason: `too short (${wc} words)` }
+  if (wc > 800) return { ok: false, reason: `too long (${wc} words)` }
 
   return { ok: true }
 }
@@ -236,9 +256,13 @@ async function callOpenRouter(
   }
 }
 
-function makeDefaultPlan(jdText: string, metadata: LetterMetadata): LetterPlan {
+function makeDefaultPlan(jdText: string, metadata: LetterMetadata, scoreResult: Record<string, unknown> = {}): LetterPlan {
   const primary: EvidenceId = DEFAULT_PRIMARY_EVIDENCE
-  const supporting: EvidenceId = hasGtmSignal(jdText) && !hasAiSignal(jdText) ? "icpPipelineRedesign" : DEFAULT_SUPPORTING_EVIDENCE
+  let supporting: EvidenceId = DEFAULT_SUPPORTING_EVIDENCE
+
+  if (hasRevOpsHardGapSignal(jdText, metadata)) supporting = "revOpsSalesforceDealDeskBridge"
+  else if (hasAuthorityGapSignal(jdText, metadata) || String(scoreResult.authority_risk || "").toLowerCase() === "high") supporting = "authorityStretchBridge"
+  else if (hasGtmSignal(jdText) && !hasAiSignal(jdText)) supporting = "icpPipelineRedesign"
 
   if (hasMedicareOrPayerSignal(jdText, metadata)) {
     return {
@@ -249,6 +273,7 @@ function makeDefaultPlan(jdText: string, metadata: LetterMetadata): LetterPlan {
       must_not_claim: [
         "CEO proxy experience",
         "direct Medicare Advantage experience",
+        "payer operations experience",
         "clinical operations leadership",
         "board attendance or presentation",
         "formal sales management",
@@ -262,13 +287,20 @@ function makeDefaultPlan(jdText: string, metadata: LetterMetadata): LetterPlan {
     supporting_evidence_id: supporting,
     domain_bridge: "Bridge any domain gap honestly from Sam's healthcare, life sciences, commercial strategy, analytics, and technical-market experience.",
     gap_strategy: "Lead with operating scope and evidence. Do not over-explain gaps unless they are central to the role.",
-    must_not_claim: ["CEO proxy experience", "board presentation", "formal sales management", "direct Salesforce or AWS expertise"],
+    must_not_claim: [
+      "CEO proxy experience",
+      "board presentation",
+      "formal sales management",
+      "direct Salesforce architecture or admin ownership",
+      "deal desk ownership",
+      "AWS expertise",
+    ],
     tone_notes: ["clear", "specific", "practical", "not generic"],
   }
 }
 
-function validatePlan(raw: unknown, jdText: string, metadata: LetterMetadata): LetterPlan {
-  const fallback = makeDefaultPlan(jdText, metadata)
+function validatePlan(raw: unknown, jdText: string, metadata: LetterMetadata, scoreResult: Record<string, unknown>): LetterPlan {
+  const fallback = makeDefaultPlan(jdText, metadata, scoreResult)
   const obj = typeof raw === "object" && raw !== null ? raw as Record<string, unknown> : {}
 
   const primary = isEvidenceId(obj.primary_evidence_id) ? obj.primary_evidence_id : fallback.primary_evidence_id
@@ -287,12 +319,22 @@ function validatePlan(raw: unknown, jdText: string, metadata: LetterMetadata): L
   }
 
   if (hasMedicareOrPayerSignal(jdText, metadata)) {
-    const forced = makeDefaultPlan(jdText, metadata)
+    const forced = makeDefaultPlan(jdText, metadata, scoreResult)
     plan.primary_evidence_id = "commercialOperatingSystem"
     plan.supporting_evidence_id = hasAiSignal(jdText) ? "aiAssistedWorkflows" : forced.supporting_evidence_id
     plan.domain_bridge = forced.domain_bridge
     plan.gap_strategy = forced.gap_strategy
     plan.must_not_claim = forced.must_not_claim
+  }
+
+  if (hasRevOpsHardGapSignal(jdText, metadata)) {
+    plan.supporting_evidence_id = "revOpsSalesforceDealDeskBridge"
+    plan.must_not_claim = Array.from(new Set([...(plan.must_not_claim || []), "Salesforce architecture ownership", "deal desk ownership", "commission ownership"]))
+  }
+
+  if (hasAuthorityGapSignal(jdText, metadata) || String(scoreResult.authority_risk || "").toLowerCase() === "high") {
+    plan.supporting_evidence_id = "authorityStretchBridge"
+    plan.must_not_claim = Array.from(new Set([...(plan.must_not_claim || []), "formal EVP authority", "Deputy COO authority", "department-leader accountability authority"]))
   }
 
   return plan
@@ -301,7 +343,7 @@ function validatePlan(raw: unknown, jdText: string, metadata: LetterMetadata): L
 async function generatePlan(
   apiKey: string,
   jdText: string,
-  scoreResult: object,
+  scoreResult: Record<string, unknown>,
   metadata: LetterMetadata,
 ): Promise<LetterPlan> {
   const evidenceCatalog = Object.values(EVIDENCE)
@@ -320,16 +362,16 @@ async function generatePlan(
       true,
     )
     const parsed = JSON.parse(stripJsonFence(result.content))
-    return validatePlan(parsed, jdText, metadata)
+    return validatePlan(parsed, jdText, metadata, scoreResult)
   } catch {
-    return makeDefaultPlan(jdText, metadata)
+    return makeDefaultPlan(jdText, metadata, scoreResult)
   }
 }
 
 async function polishControlledDraft(
   apiKey: string,
   jdText: string,
-  scoreResult: object,
+  scoreResult: Record<string, unknown>,
   plan: LetterPlan,
   controlledDraft: string,
   metadata: LetterMetadata,
@@ -351,15 +393,14 @@ async function polishControlledDraft(
       { role: "system", content: LETTER_REWRITE_SYSTEM_PROMPT },
       { role: "user", content: prompt },
     ],
-    2800,
+    3200,
     0.2,
     false,
   )
 
   let combined = first.content
-  let finishReason = first.finishReason
 
-  if (finishReason === "length") {
+  if (first.finishReason === "length") {
     const next = await callOpenRouter(
       apiKey,
       LETTER_MODEL,
@@ -367,11 +408,11 @@ async function polishControlledDraft(
         {
           role: "system",
           content:
-            "Continue the unfinished cover letter. Do not restart. Do not add new claims. Finish naturally and end with Sam on its own line.",
+            "Continue the unfinished cover letter. Do not restart. Do not add new claims. Finish naturally and end with Sam Dickinson on its own line.",
         },
         { role: "user", content: `Continue exactly from this unfinished letter and finish it.\n\n${combined}` },
       ],
-      1200,
+      1600,
       0.15,
       false,
     )
@@ -411,12 +452,13 @@ export async function POST(req: NextRequest) {
     role: body.role || "",
   }
 
-  const plan = await generatePlan(apiKey, jdText, body.result, metadata)
-  const controlledDraft = finalizeLetter(buildControlledCoverLetterDraft({ jdText, metadata, scoreResult: body.result as Record<string, unknown>, plan }))
+  const scoreResult = body.result as Record<string, unknown>
+  const plan = await generatePlan(apiKey, jdText, scoreResult, metadata)
+  const controlledDraft = finalizeLetter(buildControlledCoverLetterDraft({ jdText, metadata, scoreResult, plan }))
   const controlledAssessment = assessLetter(controlledDraft)
 
   try {
-    const polished = await polishControlledDraft(apiKey, jdText, body.result, plan, controlledDraft, metadata)
+    const polished = await polishControlledDraft(apiKey, jdText, scoreResult, plan, controlledDraft, metadata)
     const assessment = assessLetter(polished)
 
     if (assessment.ok) {
